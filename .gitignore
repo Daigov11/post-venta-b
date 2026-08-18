@@ -1,0 +1,9 @@
+node_modules
+dist
+*.log
+.DS_Store
+
+# Variables de entorno con secretos reales (credenciales MySQL, token de
+# respaldo de APIWorking, etc.) — nunca se sube, solo .env.example
+.env
+.env.local

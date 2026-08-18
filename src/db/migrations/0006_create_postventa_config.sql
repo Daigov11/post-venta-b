@@ -1,0 +1,9 @@
+CREATE TABLE postventa_config (
+  config_key VARCHAR(100) NOT NULL,
+  config_value VARCHAR(255) NOT NULL,
+  value_type ENUM('NUMBER', 'STRING', 'BOOLEAN') NOT NULL DEFAULT 'STRING',
+  descripcion VARCHAR(255) NULL,
+  updated_by VARCHAR(150) NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
