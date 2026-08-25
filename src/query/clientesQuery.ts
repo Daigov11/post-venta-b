@@ -20,6 +20,46 @@ export interface ClientesFilter {
   // Filtro dedicado para el item 17 del spec — usa el mismo booleano
   // precalculado que la alerta RENOVACION_PROXIMA (ver facturacion.ts).
   renovacionProxima?: boolean;
+  // Estado CRUDO de APIWorking (ordenVigente.nEstadoApiWorking), distinto de
+  // "estado" (que filtra por nuestro estadoPostVentaEfectivo de 3 niveles) —
+  // usado por el mini-modulo "Suspendidos por falta de pago" de Clientes.
+  nEstadoApiWorkingRaw?: string;
+  // Mini-modulos "Clientes nuevos" / "Suspendidos por pago" — fechaInicioCliente
+  // / vencidoDesde dentro del periodo elegido (dia/semana/mes/anio, alineado a
+  // calendario). `referencia` es cualquier fecha ISO dentro del periodo a
+  // mostrar, lo que permite navegar a periodos anteriores/siguientes.
+  nuevoPeriodo?: { granularidad: Granularidad; referencia: string };
+  suspendidoPeriodo?: { granularidad: Granularidad; referencia: string };
+}
+
+export type Granularidad = "dia" | "semana" | "mes" | "anio";
+
+export function inicioDePeriodo(granularidad: Granularidad, fecha: Date): Date {
+  if (granularidad === "dia") return new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+  if (granularidad === "semana") {
+    const inicioHoy = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+    inicioHoy.setDate(inicioHoy.getDate() - inicioHoy.getDay());
+    return inicioHoy;
+  }
+  if (granularidad === "mes") return new Date(fecha.getFullYear(), fecha.getMonth(), 1);
+  return new Date(fecha.getFullYear(), 0, 1);
+}
+
+function finDePeriodo(granularidad: Granularidad, inicio: Date): Date {
+  const fin = new Date(inicio);
+  if (granularidad === "dia") fin.setDate(fin.getDate() + 1);
+  else if (granularidad === "semana") fin.setDate(fin.getDate() + 7);
+  else if (granularidad === "mes") fin.setMonth(fin.getMonth() + 1);
+  else fin.setFullYear(fin.getFullYear() + 1);
+  return fin;
+}
+
+export function rangoDePeriodo(
+  granularidad: Granularidad,
+  referencia: Date
+): { inicio: Date; fin: Date } {
+  const inicio = inicioDePeriodo(granularidad, referencia);
+  return { inicio, fin: finDePeriodo(granularidad, inicio) };
 }
 
 export type ClientesSortField =
@@ -29,6 +69,8 @@ export type ClientesSortField =
   | "cantidadComprobantesHistorico"
   | "estadoPostVentaEfectivo"
   | "fechaOs"
+  | "fechaInicioCliente"
+  | "vencidoDesde"
   | "diasParaRenovacion";
 
 export interface ClientesQueryOptions {
@@ -51,7 +93,7 @@ function matchesSearch(cliente: PostVentaCliente, search: string): boolean {
   if (!needle) return true;
   if (cliente.nombreCliente.toLowerCase().includes(needle)) return true;
   if (cliente.numeroDocumentoCliente.toLowerCase().includes(needle)) return true;
-  if (cliente.telefono?.toLowerCase().includes(needle)) return true;
+  if (cliente.telefonoEfectivo?.toLowerCase().includes(needle)) return true;
   return cliente.osRefs.some((os) => os.numeroOs.toLowerCase().includes(needle));
 }
 
@@ -107,6 +149,32 @@ function filterClientes(clientes: PostVentaCliente[], filter: ClientesFilter): P
     if (filter.renovacionProxima !== undefined) {
       if (cliente.renovacionEnAlerta !== filter.renovacionProxima) return false;
     }
+    if (filter.nEstadoApiWorkingRaw) {
+      if (
+        cliente.ordenVigente.nEstadoApiWorking.trim().toUpperCase() !==
+        filter.nEstadoApiWorkingRaw.trim().toUpperCase()
+      ) {
+        return false;
+      }
+    }
+    if (filter.nuevoPeriodo) {
+      if (!cliente.fechaInicioCliente) return false;
+      const { inicio, fin } = rangoDePeriodo(
+        filter.nuevoPeriodo.granularidad,
+        new Date(filter.nuevoPeriodo.referencia)
+      );
+      const fecha = new Date(cliente.fechaInicioCliente);
+      if (fecha < inicio || fecha >= fin) return false;
+    }
+    if (filter.suspendidoPeriodo) {
+      if (!cliente.vencidoDesde) return false;
+      const { inicio, fin } = rangoDePeriodo(
+        filter.suspendidoPeriodo.granularidad,
+        new Date(filter.suspendidoPeriodo.referencia)
+      );
+      const fecha = new Date(cliente.vencidoDesde);
+      if (fecha < inicio || fecha >= fin) return false;
+    }
     return true;
   });
 }
@@ -125,6 +193,10 @@ function compareBy(field: ClientesSortField, a: PostVentaCliente, b: PostVentaCl
       return a.estadoPostVentaEfectivo.localeCompare(b.estadoPostVentaEfectivo);
     case "fechaOs":
       return (a.ordenVigente.fechaOs ?? "").localeCompare(b.ordenVigente.fechaOs ?? "");
+    case "fechaInicioCliente":
+      return (a.fechaInicioCliente ?? "").localeCompare(b.fechaInicioCliente ?? "");
+    case "vencidoDesde":
+      return (a.vencidoDesde ?? "").localeCompare(b.vencidoDesde ?? "");
     case "diasParaRenovacion":
       return (a.diasParaRenovacion ?? Infinity) - (b.diasParaRenovacion ?? Infinity);
     default:

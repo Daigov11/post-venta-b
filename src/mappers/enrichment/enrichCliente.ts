@@ -25,6 +25,7 @@ import {
 } from "./facturacion.js";
 import { parsePlan } from "./plan.js";
 import { parseRubro } from "./rubro.js";
+import { calcularSistemas } from "./sistemas.js";
 import { parseUbigeo } from "./ubigeo.js";
 
 function toOsRefResumen(os: OsRefNormalized): OsRefResumen {
@@ -156,10 +157,16 @@ export function enrichCliente(
     ? Math.floor((new Date(generatedAt).getTime() - new Date(fechaInactivo).getTime()) / MS_POR_DIA)
     : null;
 
+  const telefonoManual = local.metadata?.telefonoManual ?? null;
+  const osRefs = base.osRefs.map(toOsRefResumen);
+
   return {
     numeroDocumentoCliente: base.numeroDocumentoCliente,
     nombreCliente: base.nombreCliente,
+    sistemas: calcularSistemas(osRefs),
     telefono: base.telefono,
+    telefonoManual,
+    telefonoEfectivo: telefonoManual ?? base.telefono,
     ubicacion: parseUbigeo(base.nUbigeo),
 
     ordenVigente: ordenVigenteResumen,
@@ -168,7 +175,7 @@ export function enrichCliente(
       ...planActual,
     },
 
-    osRefs: base.osRefs.map(toOsRefResumen),
+    osRefs,
     cantidadOs: base.osRefs.length,
 
     deudaTotal: base.deudaTotal,
@@ -203,6 +210,8 @@ export function enrichCliente(
     }),
     cantidadTrabajadores: local.systemUsersCache?.cantidadTrabajadores ?? null,
     cantidadTrabajadoresActualizadoEn: local.systemUsersCache?.updatedAt ?? null,
+    usuarios: local.systemUsersCache?.usuarios ?? [],
+    baseDatos: local.systemUsersCache?.baseDatos ?? null,
     diasSinActividad,
 
     metadata: {

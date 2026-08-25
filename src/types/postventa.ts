@@ -239,10 +239,31 @@ export interface Ubicacion {
   distrito: string;
 }
 
+// Que otros sistemas de la familia APIWorking tiene el cliente, calculado
+// desde el texto de los planes de sus OS (ver calcularSistemas) — nunca
+// inventado. apiWorking es la cantidad de OS (>1 = varios locales/sistemas
+// APIWorking); el resto son booleanos, en gris cuando no hay señal real.
+export interface ClienteSistemas {
+  apiWorking: number;
+  apiLoyalty: boolean;
+  donChat: boolean;
+  sireContable: boolean;
+  apiReview: boolean;
+  pos: boolean;
+}
+
 export interface PostVentaCliente {
   numeroDocumentoCliente: string;
   nombreCliente: string;
+  sistemas: ClienteSistemas;
+  // telefono es el dato crudo de APIWorking, nunca se sobreescribe. Si al
+  // contactar al cliente resulta ser otro numero, se guarda telefonoManual
+  // (nuestro, editable) y telefonoEfectivo es el que hay que usar en toda la
+  // UI (manual si existe, si no el de APIWorking) — mismo patron que
+  // segmentoManual/segmentoEfectivo.
   telefono: string | null;
+  telefonoManual: string | null;
+  telefonoEfectivo: string | null;
   ubicacion: Ubicacion | { raw: string } | null;
 
   ordenVigente: OsRefResumen;
@@ -314,6 +335,11 @@ export interface PostVentaCliente {
   // estar desactualizado, ver cantidadTrabajadoresActualizadoEn.
   cantidadTrabajadores: number | null;
   cantidadTrabajadoresActualizadoEn: string | null;
+  // Usuarios del sistema propio del cliente, listos para copiar/pegar — mismo
+  // cache que cantidadTrabajadores, nunca incluye la clave (password): el
+  // mapper de systemUsers.ts la descarta antes de llegar aca.
+  usuarios: string[];
+  baseDatos: string | null;
 
   // Proxy de "ultima actividad" — postVentaExtra.fechaInactivo se actualiza
   // constantemente en clientes que usan el sistema con normalidad (no es "se
@@ -383,6 +409,13 @@ export interface PostVentaConfigValues {
   // Dias sin señal de actividad (fechaInactivo) a partir de los cuales se
   // alerta posible desuso — independiente del segmento de pago.
   "actividad.dias_sin_uso_alerta": number;
+  // Seguimiento post venta ("Meta Team") — dias entre cada ronda de contacto
+  // a un cliente recien capacitado, y la fecha a partir de la cual un
+  // cliente nuevo entra al flujo automatico (los anteriores a esa fecha ya
+  // fueron seguidos a mano, ver import del Excel de Ligia).
+  "seguimiento.dias_etapa2": number;
+  "seguimiento.dias_etapa3": number;
+  "seguimiento.fecha_corte_clientes_nuevos": string;
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +431,7 @@ export interface Alerta {
   mensaje: string;
   cliente: string;
   nombreCliente: string;
+  sistemas: ClienteSistemas;
   idOrdenServicio: number | null;
   fecha: string;
   origen: string;
@@ -411,6 +445,7 @@ export interface Oportunidad {
   mensaje: string;
   cliente: string;
   nombreCliente: string;
+  sistemas: ClienteSistemas;
   idOrdenServicio: number | null;
   valorEstimado: number | "No determinado";
   fecha: string;
@@ -426,6 +461,7 @@ export interface ClienteMetadata {
   idOrdenServicio: number | null;
   segmentoManual: string | null;
   estadoPostVentaManual: EstadoPostVenta | null;
+  telefonoManual: string | null;
   etiquetas: string[];
   observacionGeneral: string | null;
   updatedBy: string | null;
@@ -527,4 +563,114 @@ export interface Reunion {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Historial de seguimiento — GET Administrativo/historial-seguimiento,
+// origen=1 (Orden de Servicio). Bitacora real de APIWorking: cada cambio de
+// estado de la OS a lo largo del tiempo, quien lo hizo y una observacion
+// libre. Cubre lo que el plan original marcaba como "no disponible":
+// historial de estados y contacto efectivo (llamadas). Las incidencias
+// propiamente dichas tienen su propia tabla — ver Incidencia mas abajo.
+// ---------------------------------------------------------------------------
+export interface HistorialSeguimientoEvento {
+  fecha: string | null;
+  idEstado: number;
+  estado: string;
+  persona: string;
+  observacion: string;
+}
+
+// ---------------------------------------------------------------------------
+// Incidencias — GET Administrativo/incidencias. A diferencia del historial de
+// seguimiento, esta SI es una tabla propia con estado de resolucion real:
+// condicion "A" (abierta) / "C" (cerrada-resuelta) — ver incidencias.mapper.ts.
+// ---------------------------------------------------------------------------
+export interface Incidencia {
+  idIncidencia: number;
+  idOrdenServicio: number;
+  numeroOs: string;
+  fecha: string | null;
+  caso: string;
+  tipo: string;
+  estado: string;
+  resuelta: boolean;
+  asignadoPor: string;
+  asignadoA: string;
+  aCargo: string;
+  telefono: string | null;
+  descripcion: string;
+  reportadoPorCliente: boolean;
+  automatico: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Seguimiento Post Venta ("Meta Team") — onboarding de clientes recien
+// capacitados: 3 rondas de contacto (bienvenida, +15 dias, +30 dias desde la
+// anterior). Antes se llevaba a mano en un Excel (Ligia/Zurilma); los
+// clientes de ahi se importaron con origen IMPORTADO_EXCEL, los nuevos desde
+// seguimiento.fecha_corte_clientes_nuevos entran solos con AUTOMATICO.
+// ---------------------------------------------------------------------------
+export type EstadoPipelineSeguimiento = "EN_PROCESO" | "EXITOSO" | "REQUIERE_ATENCION";
+export type OrigenSeguimiento = "AUTOMATICO" | "IMPORTADO_EXCEL";
+
+export interface SeguimientoCliente {
+  id: number;
+  numeroDocumentoCliente: string;
+  idOrdenServicio: number;
+  fechaInicio: string;
+  estadoPipeline: EstadoPipelineSeguimiento;
+  origen: OrigenSeguimiento;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SeguimientoEtapa {
+  id: number;
+  seguimientoClienteId: number;
+  etapa: 1 | 2 | 3;
+  fechaRealizado: string | null;
+  medioComunicacion: string | null;
+  estadoSeguimiento: string | null;
+  resumen: string | null;
+  solicitudCliente: string | null;
+  usuario: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Etiquetas de las 3 etapas — no vienen de APIWorking ni del Excel, son
+// nuestras (confirmado con el negocio), calculadas segun cuantas etapas ya
+// se registraron y cuantos dias pasaron desde la ultima.
+export const ETAPA_LABEL: Record<1 | 2 | 3, string> = {
+  1: "Cliente capacitado inactivo después de seguimiento post venta",
+  2: "Cliente capacitado pendiente de revisión post venta",
+  3: "Cliente revisado por posventa pendiente de activación",
+};
+
+export interface EtapaActualInfo {
+  etapa: 1 | 2 | 3;
+  label: string;
+  diasParaSiguiente: number | null;
+  vencida: boolean;
+}
+
+export interface SeguimientoResumen {
+  numeroDocumentoCliente: string;
+  nombreCliente: string;
+  plan: string;
+  sistemas: ClienteSistemas;
+  ejecutivo: string | null;
+  origen: OrigenSeguimiento;
+  estadoPipeline: EstadoPipelineSeguimiento;
+  fechaInicio: string;
+  etapaActual: EtapaActualInfo | null; // null cuando estadoPipeline ya no esta EN_PROCESO
+}
+
+export interface SeguimientoDetalle {
+  cliente: SeguimientoCliente;
+  etapas: SeguimientoEtapa[];
+  etapaActual: EtapaActualInfo | null;
+  incidencias: HistorialSeguimientoEvento[];
+  notas: Nota[];
 }

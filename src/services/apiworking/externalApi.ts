@@ -131,6 +131,62 @@ export interface PostVentaQuery {
 // getConFallback reintenta con FALLBACK_API_TOKEN, igual que en orden-servicio.
 // Falla con fechas anteriores al 25-09-2022 (error de conversion de fecha del
 // lado de APIWorking, confirmado probando el rango) — ver sync.post_venta_fecha_inicio.
+export interface HistorialSeguimientoQuery {
+  idOrdenServicio: number | string;
+  displayStart?: string | number;
+  displayLength?: string | number;
+  search?: string;
+}
+
+// origen=1 (Orden de Servicio) es el unico soportado hoy — el endpoint
+// tambien acepta origen=2 (Capacitaciones) y 3 (Misiones), pero esos piden
+// idCapacitacion/idMision, que no existen en nuestro dataset (solo tenemos
+// idOrdenServicio). Se deja fijo en 1 hasta que haya de donde sacar esos IDs.
+export async function fetchHistorialSeguimiento(
+  token: string,
+  query: HistorialSeguimientoQuery
+): Promise<unknown> {
+  return getConFallback(
+    "/Administrativo/historial-seguimiento",
+    {
+      origen: 1,
+      idSeguimiento: query.idOrdenServicio,
+      displayStart: query.displayStart ?? 0,
+      displatyLength: query.displayLength ?? 300,
+      search: query.search ?? "",
+    },
+    token,
+    "historial-seguimiento"
+  );
+}
+
+export interface IncidenciasQuery {
+  // Filtra por numeroDocumentoCliente (o numero_os, otros campos matchean
+  // tambien) — confirmado probando contra datos reales, no documentado.
+  search: string;
+  displayStart?: string | number;
+  displayLength?: string | number;
+}
+
+// fechaInicio/fechaFin son requeridos por el endpoint aunque allFechas=1 los
+// ignore en la practica (confirmado probando el rango completo vs uno
+// acotado, mismo total) — se manda un rango fijo bien amplio.
+export async function fetchIncidencias(token: string, query: IncidenciasQuery): Promise<unknown> {
+  return getConFallback(
+    "/Administrativo/incidencias",
+    {
+      allFechas: 1,
+      fechaInicio: "2000-01-01",
+      fechaFin: new Date().toISOString().slice(0, 10),
+      displayStart: query.displayStart ?? 0,
+      displayLength: query.displayLength ?? 300,
+      search: query.search,
+    },
+    token,
+    "incidencias"
+  );
+}
+
 export async function fetchPostVenta(token: string, query: PostVentaQuery): Promise<unknown> {
   return getConFallback(
     "/Administrativo/post-venta",

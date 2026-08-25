@@ -94,6 +94,7 @@ export function evaluateOportunidades(
         mensaje: result.mensaje,
         cliente: cliente.numeroDocumentoCliente,
         nombreCliente: cliente.nombreCliente,
+        sistemas: cliente.sistemas,
         idOrdenServicio: result.idOrdenServicio,
         valorEstimado: result.valorEstimado,
         fecha: generatedAt,

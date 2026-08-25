@@ -1,0 +1,6 @@
+CREATE TABLE postventa_baja_cache (
+  numero_documento_cliente VARCHAR(20) NOT NULL PRIMARY KEY,
+  id_orden_servicio BIGINT UNSIGNED NOT NULL,
+  fecha_baja DATETIME NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

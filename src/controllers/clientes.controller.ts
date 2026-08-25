@@ -2,17 +2,19 @@ import type { Request, Response } from "express";
 import { evaluateAlertas } from "../engines/alertas.engine.js";
 import { evaluateOportunidades } from "../engines/oportunidades.engine.js";
 import { construirAlertasReuniones } from "./alertas.controller.js";
-import type { ClientesFilter, ClientesSortField } from "../query/clientesQuery.js";
+import type { ClientesFilter, ClientesSortField, Granularidad } from "../query/clientesQuery.js";
 import { queryClientes } from "../query/clientesQuery.js";
 import * as clienteInteresesRepository from "../repositories/clienteIntereses.repository.js";
 import * as clienteMetadataRepository from "../repositories/clienteMetadata.repository.js";
 import * as interesesCatalogoRepository from "../repositories/interesesCatalogo.repository.js";
 import * as notasRepository from "../repositories/notas.repository.js";
 import * as reunionesRepository from "../repositories/reuniones.repository.js";
+import * as seguimientoRepository from "../repositories/seguimientoPostVenta.repository.js";
 import * as tareasRepository from "../repositories/tareas.repository.js";
 import { getConfig } from "../services/postventa/configService.js";
-import { getPostVentaDataset } from "../services/postventa/postventaCache.js";
-import type { EstadoPostVenta, Periodicidad } from "../types/postventa.js";
+import { getClientesExcluidos, getPostVentaDataset } from "../services/postventa/postventaCache.js";
+import { construirResumen } from "../services/postventa/seguimientoPostVenta.js";
+import type { EstadoPostVenta, Periodicidad, SeguimientoResumen } from "../types/postventa.js";
 
 const EXPORT_MAX_ROWS = 5000;
 const SORT_FIELDS: ClientesSortField[] = [
@@ -22,6 +24,8 @@ const SORT_FIELDS: ClientesSortField[] = [
   "cantidadComprobantesHistorico",
   "estadoPostVentaEfectivo",
   "fechaOs",
+  "fechaInicioCliente",
+  "vencidoDesde",
   "diasParaRenovacion",
 ];
 
@@ -35,6 +39,19 @@ function parseNumber(value: unknown): number | undefined {
   if (value === undefined) return undefined;
   const num = Number(value);
   return Number.isFinite(num) ? num : undefined;
+}
+
+const GRANULARIDADES: Granularidad[] = ["dia", "semana", "mes", "anio"];
+
+function parsePeriodo(
+  granularidadValue: unknown,
+  referenciaValue: unknown
+): { granularidad: Granularidad; referencia: string } | undefined {
+  if (!GRANULARIDADES.includes(String(granularidadValue) as Granularidad)) return undefined;
+  const granularidad = String(granularidadValue) as Granularidad;
+  const referencia = referenciaValue ? new Date(String(referenciaValue)) : new Date();
+  if (Number.isNaN(referencia.getTime())) return undefined;
+  return { granularidad, referencia: referencia.toISOString() };
 }
 
 function buildFilter(query: Request["query"]): ClientesFilter {
@@ -56,6 +73,9 @@ function buildFilter(query: Request["query"]): ClientesFilter {
     comprobantesMax: parseNumber(query.comprobantesMax),
     segmento: query.segmento ? String(query.segmento) : undefined,
     renovacionProxima: parseBoolean(query.renovacionProxima),
+    nEstadoApiWorkingRaw: query.nEstadoApiWorkingRaw ? String(query.nEstadoApiWorkingRaw) : undefined,
+    nuevoPeriodo: parsePeriodo(query.nuevoGranularidad, query.nuevoReferencia),
+    suspendidoPeriodo: parsePeriodo(query.suspendidoGranularidad, query.suspendidoReferencia),
   };
 }
 
@@ -83,9 +103,16 @@ export async function listClientes(req: Request, res: Response) {
 export async function getFichaCliente(req: Request, res: Response) {
   const { numeroDocumentoCliente } = req.params;
   const dataset = await getPostVentaDataset();
-  const cliente = dataset.clientes.find(
-    (c) => c.numeroDocumentoCliente === numeroDocumentoCliente
-  );
+  let cliente = dataset.clientes.find((c) => c.numeroDocumentoCliente === numeroDocumentoCliente);
+
+  // No esta en el dataset normal (ej. "CLIENTE DE BAJA", ver
+  // dataset.estados_excluidos) — se busca tambien ahi antes de dar 404.
+  // Sigue teniendo sentido ver su ficha (agendar reunion de reactivacion,
+  // marcar interes) aunque este dado de baja.
+  if (!cliente) {
+    const excluidos = await getClientesExcluidos();
+    cliente = excluidos.find((c) => c.numeroDocumentoCliente === numeroDocumentoCliente);
+  }
 
   if (!cliente) {
     return res.status(404).json({ message: "Cliente no encontrado" });
@@ -106,6 +133,23 @@ export async function getFichaCliente(req: Request, res: Response) {
   ];
   const oportunidades = evaluateOportunidades([cliente], config, dataset.generatedAt);
 
+  // Resumen liviano (no el detalle completo, eso lo trae el drawer al abrirse
+  // — evita pedirle el historial de incidencias a APIWorking en cada carga
+  // de ficha) para saber si mostrar la seccion de Seguimiento Post Venta.
+  let seguimientoPostVenta: SeguimientoResumen | null = null;
+  const seguimientoCliente = await seguimientoRepository.findClienteByNumero(numeroDocumentoCliente);
+  if (seguimientoCliente) {
+    const etapas = await seguimientoRepository.findEtapasByCliente(seguimientoCliente.id);
+    seguimientoPostVenta = construirResumen(
+      cliente,
+      etapas,
+      seguimientoCliente.estadoPipeline,
+      seguimientoCliente.origen,
+      seguimientoCliente.fechaInicio,
+      config
+    );
+  }
+
   res.status(200).json({
     cliente,
     notas,
@@ -114,12 +158,14 @@ export async function getFichaCliente(req: Request, res: Response) {
     oportunidades,
     intereses: { catalogo: interesesCatalogo, marcados: interesesMarcados },
     reuniones,
+    seguimientoPostVenta,
   });
 }
 
 export async function updateClienteMetadata(req: Request, res: Response) {
   const { numeroDocumentoCliente } = req.params;
-  const { segmentoManual, estadoPostVentaManual, etiquetas, observacionGeneral } = req.body ?? {};
+  const { segmentoManual, estadoPostVentaManual, telefonoManual, etiquetas, observacionGeneral } =
+    req.body ?? {};
 
   await clienteMetadataRepository.upsert(
     numeroDocumentoCliente,
@@ -127,6 +173,7 @@ export async function updateClienteMetadata(req: Request, res: Response) {
       segmentoManual: segmentoManual === undefined ? undefined : segmentoManual || null,
       estadoPostVentaManual:
         estadoPostVentaManual === undefined ? undefined : estadoPostVentaManual || null,
+      telefonoManual: telefonoManual === undefined ? undefined : telefonoManual || null,
       etiquetas: Array.isArray(etiquetas) ? etiquetas : undefined,
       observacionGeneral: observacionGeneral === undefined ? undefined : observacionGeneral || null,
     },

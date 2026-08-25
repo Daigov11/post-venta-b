@@ -9,6 +9,7 @@ interface ClienteMetadataRow extends RowDataPacket {
   id_orden_servicio: number | null;
   segmento_manual: string | null;
   estado_postventa_manual: EstadoPostVenta | null;
+  telefono_manual: string | null;
   etiquetas: unknown;
   observacion_general: string | null;
   updated_by: string | null;
@@ -23,6 +24,7 @@ function toDomain(row: ClienteMetadataRow): ClienteMetadata {
     idOrdenServicio: row.id_orden_servicio,
     segmentoManual: row.segmento_manual,
     estadoPostVentaManual: row.estado_postventa_manual,
+    telefonoManual: row.telefono_manual,
     etiquetas: parseJsonColumn<string[]>(row.etiquetas, []),
     observacionGeneral: row.observacion_general,
     updatedBy: row.updated_by,
@@ -60,6 +62,7 @@ export async function findAllByClientes(
 export interface ClienteMetadataPatch {
   segmentoManual?: string | null;
   estadoPostVentaManual?: EstadoPostVenta | null;
+  telefonoManual?: string | null;
   etiquetas?: string[];
   observacionGeneral?: string | null;
 }
@@ -74,12 +77,13 @@ export async function upsert(
   if (!existing) {
     await pool.query(
       `INSERT INTO postventa_cliente_metadata
-        (numero_documento_cliente, segmento_manual, estado_postventa_manual, etiquetas, observacion_general, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (numero_documento_cliente, segmento_manual, estado_postventa_manual, telefono_manual, etiquetas, observacion_general, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         numeroDocumentoCliente,
         patch.segmentoManual ?? null,
         patch.estadoPostVentaManual ?? null,
+        patch.telefonoManual ?? null,
         JSON.stringify(patch.etiquetas ?? []),
         patch.observacionGeneral ?? null,
         usuario,
@@ -88,13 +92,14 @@ export async function upsert(
   } else {
     await pool.query(
       `UPDATE postventa_cliente_metadata SET
-        segmento_manual = ?, estado_postventa_manual = ?, etiquetas = ?, observacion_general = ?, updated_by = ?
+        segmento_manual = ?, estado_postventa_manual = ?, telefono_manual = ?, etiquetas = ?, observacion_general = ?, updated_by = ?
        WHERE id = ?`,
       [
         patch.segmentoManual !== undefined ? patch.segmentoManual : existing.segmentoManual,
         patch.estadoPostVentaManual !== undefined
           ? patch.estadoPostVentaManual
           : existing.estadoPostVentaManual,
+        patch.telefonoManual !== undefined ? patch.telefonoManual : existing.telefonoManual,
         JSON.stringify(patch.etiquetas ?? existing.etiquetas),
         patch.observacionGeneral !== undefined
           ? patch.observacionGeneral

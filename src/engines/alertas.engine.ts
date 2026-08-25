@@ -123,32 +123,35 @@ export const alertaRules: AlertaRule[] = [
     id: "sin-actividad-reciente",
     tipo: "SIN_ACTIVIDAD_RECIENTE",
     nivel: "WARNING",
-    // postVentaExtra.fechaInactivo se actualiza constantemente en clientes
-    // que usan el sistema con normalidad (confirmado con datos reales: 932 de
-    // 957 clientes con este dato siguen nEstadoSistema=ACTIVO) — no es "se
-    // dio de baja", funciona como aproximacion de "ultima actividad" mientras
-    // no tengamos el campo real de ultimo login. Vale la pena mirar sobre
-    // todo cuando el segmento de pago dice que esta bien (Diamante/Oro) pero
-    // hace tiempo que no hay señal de uso — ahi el pago no alcanza para ver
-    // el riesgo de abandono.
+    // postVentaExtra.fechaInactivo es la fecha de ultimo ingreso del cliente
+    // a su sistema (confirmado por el negocio) — no es "se dio de baja".
+    // Vale la pena mirar sobre todo cuando el segmento de pago dice que esta
+    // bien (Diamante/Oro) pero hace tiempo que no entra al sistema — ahi el
+    // pago no alcanza para ver el riesgo de abandono.
     evaluate: (cliente, config) => {
       const dias = cliente.diasSinActividad;
       if (dias === null || dias <= config["actividad.dias_sin_uso_alerta"]) return null;
       return {
-        titulo: "Sin actividad reciente",
-        mensaje: `Sin señal de actividad en el sistema hace ${dias} día(s) (aproximado, no es fecha de baja).`,
+        titulo: "Sin ingresar al sistema",
+        mensaje: `No ingresa a su sistema hace ${dias} día(s).`,
         idOrdenServicio: cliente.ordenVigente.idOrdenServicio,
       };
     },
   },
   // Reglas que necesitan datos que todavia no tenemos (ver spec seccion 20) —
   // NO implementar hasta contar con el endpoint correspondiente, solo agregar
-  // un nuevo objeto a este arreglo cuando exista:
-  // - "+7 dias sin login" real (necesita fechaHoraUltimoLogin — sin-actividad-
-  //   reciente de arriba es una aproximacion con otro dato, no lo reemplaza)
-  // - tiempo excesivo en el estado actual (necesita historial de estados)
-  // - incidencias recurrentes (necesita datos de incidencias)
-  // - contacto vencido (necesita fechaUltimoContactoEfectivo)
+  // un nuevo objeto a este arreglo cuando exista. "+7 dias sin login" ya
+  // esta cubierta arriba (sin-actividad-reciente usa fechaInactivo, que es
+  // el ultimo ingreso real, no una aproximacion). Las que siguen ahora
+  // podrian salir del historial de seguimiento (Administrativo/
+  // historial-seguimiento, origen=1 — ver services/historial), pero no estan
+  // implementadas todavia:
+  // - tiempo excesivo en el estado actual (requeriria leer el historial
+  //   completo por cliente, costoso para todo el dataset de una — evaluar)
+  // - incidencias recurrentes (aparecen como nestado "INCIDENCIAS" en el
+  //   historial, pero es texto libre, no una tabla propia con severidad)
+  // - contacto vencido (el historial trae "CLIC PARA LLAMAR A CLIENTE" con
+  //   fecha, pero igual que arriba, requeriria leerlo por cliente)
 ];
 
 export function evaluateAlertas(
@@ -169,6 +172,7 @@ export function evaluateAlertas(
         mensaje: result.mensaje,
         cliente: cliente.numeroDocumentoCliente,
         nombreCliente: cliente.nombreCliente,
+        sistemas: cliente.sistemas,
         idOrdenServicio: result.idOrdenServicio,
         fecha: generatedAt,
         origen: rule.id,

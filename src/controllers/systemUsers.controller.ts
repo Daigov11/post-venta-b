@@ -3,25 +3,9 @@ import * as systemUsersCacheRepository from "../repositories/systemUsersCache.re
 import { fetchSystemUsers } from "../services/apiworking/systemUsers.js";
 import { getPostVentaDataset } from "../services/postventa/postventaCache.js";
 import type { PostVentaCliente } from "../types/postventa.js";
+import { runWithConcurrency } from "../utils/concurrency.js";
 
 const CONCURRENCY = 8;
-
-async function runWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<void>
-): Promise<void> {
-  let index = 0;
-
-  async function next(): Promise<void> {
-    const current = index++;
-    if (current >= items.length) return;
-    await worker(items[current]);
-    return next();
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => next()));
-}
 
 async function refreshCliente(token: string, cliente: PostVentaCliente): Promise<boolean> {
   const linkSistema = cliente.ordenVigente.linkSistema;

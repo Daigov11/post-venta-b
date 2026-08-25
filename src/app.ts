@@ -16,6 +16,10 @@ import { savedViewsRouter } from "./routes/savedViews.routes.js";
 import { configRouter } from "./routes/config.routes.js";
 import { interesesRouter } from "./routes/intereses.routes.js";
 import { reunionesRouter } from "./routes/reuniones.routes.js";
+import { historialRouter } from "./routes/historial.routes.js";
+import { incidenciasRouter } from "./routes/incidencias.routes.js";
+import { clientesBajaRouter } from "./routes/clientesBaja.routes.js";
+import { seguimientoPostVentaRouter } from "./routes/seguimientoPostVenta.routes.js";
 
 export const app = express();
 
@@ -45,5 +49,9 @@ app.use("/api/saved-views", savedViewsRouter);
 app.use("/api/config", configRouter);
 app.use("/api/intereses", interesesRouter);
 app.use("/api/reuniones", reunionesRouter);
+app.use("/api/historial-seguimiento", historialRouter);
+app.use("/api/incidencias", incidenciasRouter);
+app.use("/api/clientes-baja", clientesBajaRouter);
+app.use("/api/seguimiento-postventa", seguimientoPostVentaRouter);
 
 app.use(errorHandler);

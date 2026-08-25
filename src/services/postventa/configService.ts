@@ -21,6 +21,9 @@ const DEFAULTS: PostVentaConfigValues = {
   "renovacion.alerta_semestral_dias": 45,
   "renovacion.alerta_anual_dias": 45,
   "actividad.dias_sin_uso_alerta": 30,
+  "seguimiento.dias_etapa2": 15,
+  "seguimiento.dias_etapa3": 30,
+  "seguimiento.fecha_corte_clientes_nuevos": "2026-07-04",
 };
 
 const NUMERIC_KEYS: (keyof PostVentaConfigValues)[] = [
@@ -38,6 +41,8 @@ const NUMERIC_KEYS: (keyof PostVentaConfigValues)[] = [
   "renovacion.alerta_semestral_dias",
   "renovacion.alerta_anual_dias",
   "actividad.dias_sin_uso_alerta",
+  "seguimiento.dias_etapa2",
+  "seguimiento.dias_etapa3",
 ];
 
 const CACHE_KEY = "config";

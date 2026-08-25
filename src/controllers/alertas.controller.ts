@@ -21,7 +21,15 @@ export async function construirAlertasReuniones(
   const manana = new Date(hoy.getTime() + 24 * 60 * 60 * 1000);
   const reuniones = await reunionesRepository.listProximas(fechaISO(hoy), fechaISO(manana));
 
-  const nombrePorDocumento = new Map(clientes.map((c) => [c.numeroDocumentoCliente, c.nombreCliente]));
+  const clientePorDocumento = new Map(clientes.map((c) => [c.numeroDocumentoCliente, c]));
+  const sistemasVacio: PostVentaCliente["sistemas"] = {
+    apiWorking: 0,
+    apiLoyalty: false,
+    donChat: false,
+    sireContable: false,
+    apiReview: false,
+    pos: false,
+  };
 
   return reuniones.map((r) => ({
     id: `reunion-proxima:${r.numeroDocumentoCliente}:${r.id}`,
@@ -30,7 +38,9 @@ export async function construirAlertasReuniones(
     titulo: "Reunión próxima",
     mensaje: `Reunión ${r.modalidad === "VIRTUAL" ? "virtual" : "presencial"} con ${r.ejecutivo} el ${r.fecha} a las ${r.horaInicio}.`,
     cliente: r.numeroDocumentoCliente,
-    nombreCliente: nombrePorDocumento.get(r.numeroDocumentoCliente) ?? r.numeroDocumentoCliente,
+    nombreCliente:
+      clientePorDocumento.get(r.numeroDocumentoCliente)?.nombreCliente ?? r.numeroDocumentoCliente,
+    sistemas: clientePorDocumento.get(r.numeroDocumentoCliente)?.sistemas ?? sistemasVacio,
     idOrdenServicio: r.idOrdenServicio,
     fecha: generatedAt,
     origen: "reunion-proxima",

@@ -9,7 +9,7 @@ import * as notasRepository from "../../repositories/notas.repository.js";
 import * as snapshotsRepository from "../../repositories/snapshotsDiarios.repository.js";
 import * as systemUsersCacheRepository from "../../repositories/systemUsersCache.repository.js";
 import * as tareasRepository from "../../repositories/tareas.repository.js";
-import type { ClienteBase, PostVentaDataset } from "../../types/postventa.js";
+import type { ClienteBase, PostVentaCliente, PostVentaDataset } from "../../types/postventa.js";
 import { fetchAllOrdenesServicio } from "../apiworking/ordenesSync.js";
 import { fetchAllPostVenta } from "../apiworking/postVentaSync.js";
 import { getConfig } from "./configService.js";
@@ -153,6 +153,48 @@ export async function getPostVentaDataset(): Promise<PostVentaDataset> {
     generatedAt: rawGeneratedAt,
     totalOsRows: clienteBases.reduce((sum, base) => sum + base.osRefs.length, 0),
   };
+}
+
+// Espejo de getPostVentaDataset() para el LADO CONTRARIO del filtro —
+// clientes cuyo estado esta en dataset.estados_excluidos (hoy: "CLIENTE DE
+// BAJA"), que el dataset normal descarta por completo. Usado solo por el
+// mini-modulo "Dados de baja" de Clientes — no corre evaluateAlertas (no
+// tiene sentido generar alertas para un cliente ya dado de baja).
+export async function getClientesExcluidos(): Promise<PostVentaCliente[]> {
+  if (!rawState) {
+    await refreshRawDataset();
+  }
+  const { clienteBases: clienteBasesSinFiltrar, generatedAt: rawGeneratedAt } = rawState!;
+
+  const config = await getConfig();
+  const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
+  const clienteBases = clienteBasesSinFiltrar.filter((base) =>
+    estadosExcluidos.includes(base.ordenVigente.nEstadoApiWorking.trim().toUpperCase())
+  );
+  const numerosDocumento = clienteBases.map((base) => base.numeroDocumentoCliente);
+
+  const [metadataMap, notasCountMap, tareasCountMap, systemUsersCacheMap] = await Promise.all([
+    clienteMetadataRepository.findAllByClientes(numerosDocumento),
+    notasRepository.countByClientes(numerosDocumento),
+    tareasRepository.countAbiertasYTotalByClientes(numerosDocumento),
+    systemUsersCacheRepository.findAllByClientes(numerosDocumento),
+  ]);
+
+  return clienteBases.map((base) => {
+    const tareasCounts = tareasCountMap.get(base.numeroDocumentoCliente);
+    return enrichCliente(
+      base,
+      config,
+      {
+        metadata: metadataMap.get(base.numeroDocumentoCliente) ?? null,
+        notasCount: notasCountMap.get(base.numeroDocumentoCliente) ?? 0,
+        tareasAbiertasCount: tareasCounts?.abiertas ?? 0,
+        tareasTotalCount: tareasCounts?.total ?? 0,
+        systemUsersCache: systemUsersCacheMap.get(base.numeroDocumentoCliente) ?? null,
+      },
+      rawGeneratedAt
+    );
+  });
 }
 
 // Sync completo: trae todo de nuevo de APIWorking, re-enriquece, y guarda la
