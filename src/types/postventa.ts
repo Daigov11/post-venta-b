@@ -347,6 +347,11 @@ export interface PostVentaCliente {
   // usarlo, independiente de si pagan bien. null si no hay dato (nunca se
   // inventa).
   diasSinActividad: number | null;
+  // true si diasSinActividad supera el umbral configurado (ver
+  // actividad.dias_sin_uso_alerta) — precalculado para que el filtro del
+  // cuadro de Clientes y la alerta SIN_ACTIVIDAD_RECIENTE usen exactamente
+  // el mismo criterio (mismo patron que renovacionEnAlerta).
+  sinActividadReciente: boolean;
 
   metadata: {
     notasCount: number;

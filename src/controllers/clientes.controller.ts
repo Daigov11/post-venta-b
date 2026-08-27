@@ -27,6 +27,8 @@ const SORT_FIELDS: ClientesSortField[] = [
   "fechaInicioCliente",
   "vencidoDesde",
   "diasParaRenovacion",
+  "ingresosClienteMensual",
+  "diasSinActividad",
 ];
 
 function parseBoolean(value: unknown): boolean | undefined {
@@ -71,8 +73,11 @@ function buildFilter(query: Request["query"]): ClientesFilter {
     antiguedadMesesMax: parseNumber(query.antiguedadMesesMax),
     comprobantesMin: parseNumber(query.comprobantesMin),
     comprobantesMax: parseNumber(query.comprobantesMax),
+    ingresosMensualesMin: parseNumber(query.ingresosMensualesMin),
+    ingresosMensualesMax: parseNumber(query.ingresosMensualesMax),
     segmento: query.segmento ? String(query.segmento) : undefined,
     renovacionProxima: parseBoolean(query.renovacionProxima),
+    sinActividadReciente: parseBoolean(query.sinActividadReciente),
     nEstadoApiWorkingRaw: query.nEstadoApiWorkingRaw ? String(query.nEstadoApiWorkingRaw) : undefined,
     nuevoPeriodo: parsePeriodo(query.nuevoGranularidad, query.nuevoReferencia),
     suspendidoPeriodo: parsePeriodo(query.suspendidoGranularidad, query.suspendidoReferencia),

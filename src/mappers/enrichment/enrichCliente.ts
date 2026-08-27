@@ -156,6 +156,8 @@ export function enrichCliente(
   const diasSinActividad = fechaInactivo
     ? Math.floor((new Date(generatedAt).getTime() - new Date(fechaInactivo).getTime()) / MS_POR_DIA)
     : null;
+  const sinActividadReciente =
+    diasSinActividad !== null && diasSinActividad > config["actividad.dias_sin_uso_alerta"];
 
   const telefonoManual = local.metadata?.telefonoManual ?? null;
   const osRefs = base.osRefs.map(toOsRefResumen);
@@ -213,6 +215,7 @@ export function enrichCliente(
     usuarios: local.systemUsersCache?.usuarios ?? [],
     baseDatos: local.systemUsersCache?.baseDatos ?? null,
     diasSinActividad,
+    sinActividadReciente,
 
     metadata: {
       notasCount: local.notasCount,

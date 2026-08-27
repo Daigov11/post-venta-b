@@ -16,10 +16,19 @@ export interface ClientesFilter {
   antiguedadMesesMax?: number;
   comprobantesMin?: number;
   comprobantesMax?: number;
+  // Segmentacion por "Ingresos mensuales" — el dato que reporta APIWorking
+  // sobre la facturacion del cliente (ordenVigente.postVentaExtra.
+  // ingresosClienteMensual), formula no documentada por APIWorking pero es
+  // la columna que ya se muestra en la UI con ese nombre.
+  ingresosMensualesMin?: number;
+  ingresosMensualesMax?: number;
   segmento?: string;
   // Filtro dedicado para el item 17 del spec — usa el mismo booleano
   // precalculado que la alerta RENOVACION_PROXIMA (ver facturacion.ts).
   renovacionProxima?: boolean;
+  // Usa el mismo booleano precalculado que la alerta SIN_ACTIVIDAD_RECIENTE
+  // (ver enrichCliente.ts) — mismo criterio en filtro y alerta.
+  sinActividadReciente?: boolean;
   // Estado CRUDO de APIWorking (ordenVigente.nEstadoApiWorking), distinto de
   // "estado" (que filtra por nuestro estadoPostVentaEfectivo de 3 niveles) —
   // usado por el mini-modulo "Suspendidos por falta de pago" de Clientes.
@@ -71,7 +80,9 @@ export type ClientesSortField =
   | "fechaOs"
   | "fechaInicioCliente"
   | "vencidoDesde"
-  | "diasParaRenovacion";
+  | "diasParaRenovacion"
+  | "ingresosClienteMensual"
+  | "diasSinActividad";
 
 export interface ClientesQueryOptions {
   filter?: ClientesFilter;
@@ -145,9 +156,20 @@ function filterClientes(clientes: PostVentaCliente[], filter: ClientesFilter): P
     if (filter.comprobantesMax !== undefined) {
       if (cliente.cantidadComprobantesHistorico > filter.comprobantesMax) return false;
     }
+    if (filter.ingresosMensualesMin !== undefined) {
+      const ingresos = cliente.ordenVigente.postVentaExtra?.ingresosClienteMensual;
+      if (ingresos == null || ingresos < filter.ingresosMensualesMin) return false;
+    }
+    if (filter.ingresosMensualesMax !== undefined) {
+      const ingresos = cliente.ordenVigente.postVentaExtra?.ingresosClienteMensual;
+      if (ingresos == null || ingresos > filter.ingresosMensualesMax) return false;
+    }
     if (filter.segmento && cliente.segmentoEfectivo !== filter.segmento) return false;
     if (filter.renovacionProxima !== undefined) {
       if (cliente.renovacionEnAlerta !== filter.renovacionProxima) return false;
+    }
+    if (filter.sinActividadReciente !== undefined) {
+      if (cliente.sinActividadReciente !== filter.sinActividadReciente) return false;
     }
     if (filter.nEstadoApiWorkingRaw) {
       if (
@@ -199,6 +221,13 @@ function compareBy(field: ClientesSortField, a: PostVentaCliente, b: PostVentaCl
       return (a.vencidoDesde ?? "").localeCompare(b.vencidoDesde ?? "");
     case "diasParaRenovacion":
       return (a.diasParaRenovacion ?? Infinity) - (b.diasParaRenovacion ?? Infinity);
+    case "ingresosClienteMensual":
+      return (
+        (a.ordenVigente.postVentaExtra?.ingresosClienteMensual ?? -1) -
+        (b.ordenVigente.postVentaExtra?.ingresosClienteMensual ?? -1)
+      );
+    case "diasSinActividad":
+      return (a.diasSinActividad ?? -1) - (b.diasSinActividad ?? -1);
     default:
       return 0;
   }

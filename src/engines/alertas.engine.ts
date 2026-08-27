@@ -128,9 +128,9 @@ export const alertaRules: AlertaRule[] = [
     // Vale la pena mirar sobre todo cuando el segmento de pago dice que esta
     // bien (Diamante/Oro) pero hace tiempo que no entra al sistema — ahi el
     // pago no alcanza para ver el riesgo de abandono.
-    evaluate: (cliente, config) => {
+    evaluate: (cliente) => {
       const dias = cliente.diasSinActividad;
-      if (dias === null || dias <= config["actividad.dias_sin_uso_alerta"]) return null;
+      if (!cliente.sinActividadReciente || dias === null) return null;
       return {
         titulo: "Sin ingresar al sistema",
         mensaje: `No ingresa a su sistema hace ${dias} día(s).`,
