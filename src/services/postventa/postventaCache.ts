@@ -76,7 +76,8 @@ async function fetchRawState(): Promise<RawState> {
   const osRefs = rawRows.map((raw) =>
     mapOrdenServicioToOsRef(raw, postVentaIndex.get(raw.idOrdenServicio) ?? null)
   );
-  const clienteBases = groupOrdenesByCliente(osRefs);
+  const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
+  const clienteBases = groupOrdenesByCliente(osRefs, estadosExcluidos);
 
   return { clienteBases, generatedAt: new Date().toISOString() };
 }

@@ -1,11 +1,12 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { pool } from "../config/db.js";
-import type { EstadoTarea, PrioridadTarea, Tarea } from "../types/postventa.js";
+import type { EstadoTarea, PrioridadTarea, Tarea, TipoTarea } from "../types/postventa.js";
 
 interface TareaRow extends RowDataPacket {
   id: number;
   numero_documento_cliente: string;
   id_orden_servicio: number | null;
+  tipo: TipoTarea;
   titulo: string;
   descripcion: string | null;
   responsable: string;
@@ -22,6 +23,7 @@ function toDomain(row: TareaRow): Tarea {
     id: row.id,
     numeroDocumentoCliente: row.numero_documento_cliente,
     idOrdenServicio: row.id_orden_servicio,
+    tipo: row.tipo,
     titulo: row.titulo,
     descripcion: row.descripcion,
     responsable: row.responsable,
@@ -41,6 +43,7 @@ export interface TareasFilter {
   estado?: EstadoTarea;
   responsable?: string;
   vencidas?: boolean;
+  tipo?: TipoTarea;
 }
 
 export async function list(filter: TareasFilter): Promise<Tarea[]> {
@@ -58,6 +61,10 @@ export async function list(filter: TareasFilter): Promise<Tarea[]> {
   if (filter.responsable) {
     conditions.push("responsable = ?");
     params.push(filter.responsable);
+  }
+  if (filter.tipo) {
+    conditions.push("tipo = ?");
+    params.push(filter.tipo);
   }
   if (filter.vencidas) {
     conditions.push("fecha_vencimiento IS NOT NULL AND fecha_vencimiento < CURDATE()");
@@ -102,9 +109,28 @@ export async function countAbiertasYTotalByClientes(
   return map;
 }
 
+// Clientes que ya tienen una tarea RENOVACION sin cerrar — para no duplicar
+// la tarea automatica mientras la anterior siga abierta (ver
+// sincronizarTareasRenovacion en services/postventa/renovacionContacto.ts).
+export async function clientesConRenovacionAbierta(
+  numerosDocumentoCliente: string[]
+): Promise<Set<string>> {
+  if (numerosDocumentoCliente.length === 0) return new Set();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT DISTINCT numero_documento_cliente
+     FROM postventa_tareas
+     WHERE tipo = 'RENOVACION'
+       AND estado NOT IN ('COMPLETADA', 'CANCELADA')
+       AND numero_documento_cliente IN (?)`,
+    [numerosDocumentoCliente]
+  );
+  return new Set(rows.map((r) => r.numero_documento_cliente as string));
+}
+
 export async function create(input: {
   numeroDocumentoCliente: string;
   idOrdenServicio: number | null;
+  tipo?: TipoTarea;
   titulo: string;
   descripcion: string | null;
   responsable: string;
@@ -114,11 +140,12 @@ export async function create(input: {
 }): Promise<Tarea> {
   const [result] = await pool.query<ResultSetHeader>(
     `INSERT INTO postventa_tareas
-      (numero_documento_cliente, id_orden_servicio, titulo, descripcion, responsable, prioridad, fecha_vencimiento, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (numero_documento_cliente, id_orden_servicio, tipo, titulo, descripcion, responsable, prioridad, fecha_vencimiento, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.numeroDocumentoCliente,
       input.idOrdenServicio,
+      input.tipo ?? "MANUAL",
       input.titulo,
       input.descripcion,
       input.responsable,

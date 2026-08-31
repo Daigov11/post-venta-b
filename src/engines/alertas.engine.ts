@@ -28,8 +28,17 @@ export const alertaRules: AlertaRule[] = [
     id: "deuda-pendiente",
     tipo: "DEUDA_PENDIENTE",
     nivel: "CRITICAL",
+    // Deja de alertar una vez que el atraso supera alerta.deuda_dias_max —
+    // un cliente suspendido/vencido hace meses ya es un caso conocido y
+    // perdido, no uno nuevo que necesite salir en el listado de alertas.
     evaluate: (cliente, config) => {
       if (cliente.deudaTotal <= config["alerta.deuda_min"]) return null;
+      if (
+        cliente.diasVencido !== null &&
+        cliente.diasVencido > config["alerta.deuda_dias_max"]
+      ) {
+        return null;
+      }
       return {
         titulo: "Deuda pendiente",
         mensaje: `El cliente tiene una deuda total de S/ ${cliente.deudaTotal.toFixed(2)}.`,

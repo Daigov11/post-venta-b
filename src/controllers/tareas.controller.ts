@@ -1,7 +1,13 @@
 import type { Request, Response } from "express";
 import * as seguimientosRepository from "../repositories/seguimientos.repository.js";
 import * as tareasRepository from "../repositories/tareas.repository.js";
+import { listTareasRenovacion } from "../services/postventa/renovacionContacto.js";
 import type { EstadoTarea, PrioridadTarea } from "../types/postventa.js";
+
+export async function listRenovacion(_req: Request, res: Response) {
+  const data = await listTareasRenovacion();
+  res.status(200).json({ data, total: data.length });
+}
 
 export async function listTareas(req: Request, res: Response) {
   const tareas = await tareasRepository.list({

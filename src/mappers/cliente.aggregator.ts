@@ -1,12 +1,24 @@
 import type { ClienteBase, OsRefNormalized } from "../types/postventa.js";
 import { parseDmyDate } from "./enrichment/dateParsing.js";
 
-function pickOrdenVigente(osRefs: OsRefNormalized[]): OsRefNormalized {
-  return osRefs.reduce((vigente, current) => {
+// Preferir una OS que NO este en estado excluido (ej. "CLIENTE DE BAJA") por
+// sobre una que si lo esta, aunque la excluida sea mas reciente — un cliente
+// con otra OS activa no deberia desaparecer de la lista normal solo porque
+// abrio una OS separada que despues se dio de baja. La fecha mas reciente
+// solo desempata dentro del mismo grupo (todas activas o todas excluidas).
+function pickOrdenVigente(
+  osRefs: OsRefNormalized[],
+  estadosExcluidos: string[]
+): OsRefNormalized {
+  const activas = osRefs.filter(
+    (os) => !estadosExcluidos.includes(os.nEstadoApiWorking.trim().toUpperCase())
+  );
+  const candidatos = activas.length > 0 ? activas : osRefs;
+  return candidatos.reduce((vigente, current) => {
     if (!current.fechaOs) return vigente;
     if (!vigente.fechaOs) return current;
     return current.fechaOs > vigente.fechaOs ? current : vigente;
-  }, osRefs[0]);
+  }, candidatos[0]);
 }
 
 function pickFechaInicioMasAntigua(osRefs: OsRefNormalized[]): string | null {
@@ -24,7 +36,10 @@ function pickFechaInicioMasAntigua(osRefs: OsRefNormalized[]): string | null {
 // Agrupa por numeroDocumentoCliente: un cliente puede tener multiples Ordenes
 // de Servicio. idOrdenServicio/numeroOs de cada una se conservan en osRefs,
 // nunca se descartan.
-export function groupOrdenesByCliente(rows: OsRefNormalized[]): ClienteBase[] {
+export function groupOrdenesByCliente(
+  rows: OsRefNormalized[],
+  estadosExcluidos: string[]
+): ClienteBase[] {
   const groups = new Map<string, OsRefNormalized[]>();
   for (const row of rows) {
     const existing = groups.get(row.numeroDocumentoCliente);
@@ -42,7 +57,7 @@ export function groupOrdenesByCliente(rows: OsRefNormalized[]): ClienteBase[] {
       if (!b.fechaOs) return -1;
       return b.fechaOs.localeCompare(a.fechaOs);
     });
-    const ordenVigente = pickOrdenVigente(osRefsOrdenados);
+    const ordenVigente = pickOrdenVigente(osRefsOrdenados, estadosExcluidos);
     const deudaTotal = osRefsOrdenados.reduce((sum, os) => sum + os.deuda, 0);
 
     clientes.push({

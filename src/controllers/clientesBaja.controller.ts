@@ -40,8 +40,16 @@ export async function listClientesBaja(req: Request, res: Response) {
   const pageSize = pageSizeRaw && pageSizeRaw > 0 ? pageSizeRaw : 20;
   const orden = req.query.orden === "antiguo" ? "antiguo" : "reciente";
   const periodo = parsePeriodo(req.query.granularidad, req.query.referencia);
+  const search = req.query.search ? String(req.query.search).trim().toLowerCase() : "";
 
-  const excluidos = await getClientesExcluidos();
+  const excluidosSinFiltrar = await getClientesExcluidos();
+  const excluidos = search
+    ? excluidosSinFiltrar.filter(
+        (c) =>
+          c.nombreCliente.toLowerCase().includes(search) ||
+          c.numeroDocumentoCliente.toLowerCase().includes(search)
+      )
+    : excluidosSinFiltrar;
   const numeros = excluidos.map((c) => c.numeroDocumentoCliente);
   const cacheMap = await bajaCacheRepository.findAllByClientes(numeros);
 

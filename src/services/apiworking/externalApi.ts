@@ -1,9 +1,16 @@
 import axios from "axios";
 import { env } from "../../config/env.js";
 
+// timeout de 45s por request — sin esto, si APIWorking se cuelga (no
+// responde, no tira error) el request nuestro queda esperando para siempre
+// y el usuario ve un spinner sin fin del lado del frontend, sin ningun error
+// que explique que paso. 45s da margen de sobra: se vio una llamada real
+// tardar ~25s en responder (arranque en frio del lado de APIWorking, no un
+// problema nuestro) y no queremos cortar una respuesta lenta pero valida.
 export const externalApi = axios.create({
   baseURL: env.externalApiBaseUrl,
   headers: { "Content-Type": "application/json" },
+  timeout: 45000,
 });
 
 export interface ExternalLoginRequest {

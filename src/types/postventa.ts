@@ -385,6 +385,11 @@ export interface PostVentaConfigValues {
   "estado.deuda_atencion_min": number;
   "estado.documentacion_completa_min": number;
   "alerta.deuda_min": number;
+  // Dias de atraso (diasVencido) a partir de los cuales la alerta de deuda
+  // pendiente deja de dispararse — un cliente suspendido hace meses ya se
+  // sabe que esta perdido, seguir alertando sobre el mismo caso indefinido
+  // es solo ruido que tapa a los casos nuevos/accionables.
+  "alerta.deuda_dias_max": number;
   "alerta.antiguedad_aniversario_meses": number;
   "oportunidad.cliente_antiguo_meses_min": number;
   "oportunidad.alto_volumen_comprobantes_min": number;
@@ -491,11 +496,15 @@ export type EstadoTarea =
   | "ESPERANDO_CLIENTE"
   | "COMPLETADA"
   | "CANCELADA";
+// RENOVACION = generada automaticamente por sincronizarTareasRenovacion,
+// MANUAL = creada a mano desde la ficha del cliente (createTarea).
+export type TipoTarea = "MANUAL" | "RENOVACION";
 
 export interface Tarea {
   id: number;
   numeroDocumentoCliente: string;
   idOrdenServicio: number | null;
+  tipo: TipoTarea;
   titulo: string;
   descripcion: string | null;
   responsable: string;
@@ -514,6 +523,23 @@ export interface Seguimiento {
   comentario: string;
   estadoEnEseMomento: EstadoTarea | null;
   createdAt: string;
+}
+
+// Tarea de tipo RENOVACION enriquecida con un snapshot del cliente al
+// momento de la consulta (no se guarda en la tarea — se lee en vivo del
+// dataset compartido) para poder filtrar por periodicidad y ordenar por
+// ingreso mensual sin tener que ir a buscar cada cliente por separado.
+export interface TareaRenovacion {
+  tarea: Tarea;
+  cliente: {
+    numeroDocumentoCliente: string;
+    nombreCliente: string;
+    sistemas: ClienteSistemas;
+    periodicidad: Periodicidad;
+    proximaRenovacion: string | null;
+    diasParaRenovacion: number | null;
+    ingresoMensualReal: number | null;
+  };
 }
 
 export interface SavedView {
