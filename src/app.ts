@@ -18,6 +18,8 @@ import { interesesRouter } from "./routes/intereses.routes.js";
 import { reunionesRouter } from "./routes/reuniones.routes.js";
 import { historialRouter } from "./routes/historial.routes.js";
 import { incidenciasRouter } from "./routes/incidencias.routes.js";
+import { incidenciasManualesRouter } from "./routes/incidenciasManuales.routes.js";
+import { llamadasRouter } from "./routes/llamadas.routes.js";
 import { clientesBajaRouter } from "./routes/clientesBaja.routes.js";
 import { seguimientoPostVentaRouter } from "./routes/seguimientoPostVenta.routes.js";
 
@@ -51,6 +53,8 @@ app.use("/api/intereses", interesesRouter);
 app.use("/api/reuniones", reunionesRouter);
 app.use("/api/historial-seguimiento", historialRouter);
 app.use("/api/incidencias", incidenciasRouter);
+app.use("/api/incidencias-manuales", incidenciasManualesRouter);
+app.use("/api/llamadas", llamadasRouter);
 app.use("/api/clientes-baja", clientesBajaRouter);
 app.use("/api/seguimiento-postventa", seguimientoPostVentaRouter);
 

@@ -489,6 +489,32 @@ export interface Nota {
   updatedAt: string;
 }
 
+// Incidencia registrada a mano desde la app, mientras no esta conectado el
+// endpoint de creacion de APIWorking (existe, se conecta mas adelante) — ver
+// tipo real Incidencia (Administrativo/incidencias, solo lectura). No
+// aparece en APIWorking todavia, solo en esta app.
+export interface IncidenciaManual {
+  id: number;
+  numeroDocumentoCliente: string;
+  idOrdenServicio: number | null;
+  caso: string;
+  tipo: string | null;
+  descripcion: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+// Registro de que alguien del equipo hizo clic en "Llamar" para un cliente —
+// no es un log de que la llamada realmente se hizo/conecto (no podemos
+// saberlo desde el navegador), solo que se inicio el intento.
+export interface Llamada {
+  id: number;
+  numeroDocumentoCliente: string;
+  idOrdenServicio: number | null;
+  usuario: string;
+  createdAt: string;
+}
+
 export type PrioridadTarea = "BAJA" | "MEDIA" | "ALTA";
 export type EstadoTarea =
   | "PENDIENTE"
@@ -577,23 +603,43 @@ export interface InteresCatalogo {
 // por ahora — regla de negocio confirmada).
 // ---------------------------------------------------------------------------
 export type ModalidadReunion = "VIRTUAL" | "PRESENCIAL";
-export type EstadoReunion = "PROGRAMADA" | "COMPLETADA" | "CANCELADA";
+// EN_ESPERA = reunion especial creada sin fecha/hora todavia (solo el
+// comentario de disponibilidad del cliente en `nota`) — pasa a PROGRAMADA
+// cuando alguien le asigna horario real (ver asignarHorarioReunion).
+export type EstadoReunion = "PROGRAMADA" | "COMPLETADA" | "CANCELADA" | "EN_ESPERA";
 
 export interface Reunion {
   id: number;
   numeroDocumentoCliente: string;
   idOrdenServicio: number | null;
   ejecutivo: string;
-  fecha: string; // "YYYY-MM-DD"
-  horaInicio: string; // "HH:mm"
-  horaFin: string; // "HH:mm"
+  // null solo mientras estado === "EN_ESPERA" (reunion especial sin horario
+  // asignado todavia). Toda reunion PROGRAMADA/COMPLETADA/CANCELADA tiene
+  // fecha/horaInicio/horaFin reales.
+  fecha: string | null; // "YYYY-MM-DD"
+  horaInicio: string | null; // "HH:mm"
+  horaFin: string | null; // "HH:mm"
   modalidad: ModalidadReunion;
   lugarOLink: string | null;
   nota: string | null;
   estado: EstadoReunion;
+  // null = reunion regular de seguimiento. "CAPACITACION" | "REFORZAMIENTO" |
+  // texto libre (cuando se elige "Otro") para una reunion especial.
+  tipoReunion: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// Reunion + snapshot en vivo del cliente, para la pantalla que lista TODAS
+// las reuniones de la cartera (no solo las de un cliente puntual).
+export interface ReunionConCliente {
+  reunion: Reunion;
+  cliente: {
+    numeroDocumentoCliente: string;
+    nombreCliente: string;
+    sistemas: ClienteSistemas;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  asignarHorarioReunion,
   createReunion,
   getDisponibilidad,
   listReuniones,
@@ -14,3 +15,4 @@ reunionesRouter.get("/disponibilidad", requireAuth, asyncHandler(getDisponibilid
 reunionesRouter.get("/", requireAuth, asyncHandler(listReuniones));
 reunionesRouter.post("/", requireAuth, asyncHandler(createReunion));
 reunionesRouter.patch("/:id", requireAuth, asyncHandler(updateReunionEstado));
+reunionesRouter.patch("/:id/horario", requireAuth, asyncHandler(asignarHorarioReunion));
