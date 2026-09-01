@@ -62,6 +62,10 @@ export interface LocalClienteContext {
   tareasAbiertasCount: number;
   tareasTotalCount: number;
   systemUsersCache: SystemUsersCache | null;
+  // No es realmente "local" (MySQL) — viene del pull masivo de incidencias
+  // de APIWorking, pero se pasa por el mismo bag por conveniencia. Ver
+  // altaPendienteMap en postventaCache.ts.
+  altaPendiente: boolean;
 }
 
 export function enrichCliente(
@@ -216,6 +220,7 @@ export function enrichCliente(
     baseDatos: local.systemUsersCache?.baseDatos ?? null,
     diasSinActividad,
     sinActividadReciente,
+    altaPendiente: local.altaPendiente,
 
     metadata: {
       notasCount: local.notasCount,

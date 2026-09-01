@@ -4,6 +4,10 @@ export interface RawIncidenciaItem {
   total?: number;
   id_incidencia?: number;
   id_ordenservicio?: number;
+  // Usado solo por el pull masivo (fetchAllIncidencias) para indexar por
+  // cliente — el endpoint por cliente lo trae tambien pero no lo necesita,
+  // ya se sabe de antemano.
+  numerodocumento_cliente?: string;
   numero_os?: string;
   fecha_creacion?: string;
   caso?: string;
@@ -59,4 +63,27 @@ export function mapIncidenciaItem(raw: RawIncidenciaItem): Incidencia {
     reportadoPorCliente: raw.enviadoporcliente === "1",
     automatico: raw.automatico === "1",
   };
+}
+
+// true = el cliente tiene al menos una incidencia "DAR DE ALTA AL CLIENTE"
+// sin resolver — señal grave: podria no estar activo en el sistema pese a
+// figurar como cliente. Usado por la alerta ALTA_PENDIENTE (ver
+// alertas.engine.ts) y calculado una vez por el sync diario (fetchAllIncidencias),
+// nunca por request de usuario.
+const TIPO_ALTA = "DAR DE ALTA AL CLIENTE";
+
+export function indexarAltaPendientePorCliente(rows: RawIncidenciaItem[]): Map<string, boolean> {
+  const map = new Map<string, boolean>();
+  for (const row of rows) {
+    const numeroDocumento = row.numerodocumento_cliente?.trim();
+    if (!numeroDocumento) continue;
+    if ((row.ntipoincidencia ?? "").trim().toUpperCase() !== TIPO_ALTA) continue;
+    const resuelta = row.condicion === "C";
+    if (!resuelta) {
+      map.set(numeroDocumento, true);
+    } else if (!map.has(numeroDocumento)) {
+      map.set(numeroDocumento, false);
+    }
+  }
+  return map;
 }

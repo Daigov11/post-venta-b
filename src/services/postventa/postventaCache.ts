@@ -1,6 +1,7 @@
 import { evaluateAlertas } from "../../engines/alertas.engine.js";
 import { groupOrdenesByCliente } from "../../mappers/cliente.aggregator.js";
 import { enrichCliente } from "../../mappers/enrichment/enrichCliente.js";
+import { indexarAltaPendientePorCliente } from "../../mappers/incidencias.mapper.js";
 import { mapOrdenServicioToOsRef } from "../../mappers/ordenServicio.mapper.js";
 import { indexarPostVentaPorOrdenServicio } from "../../mappers/postVenta.mapper.js";
 import { env } from "../../config/env.js";
@@ -10,6 +11,7 @@ import * as snapshotsRepository from "../../repositories/snapshotsDiarios.reposi
 import * as systemUsersCacheRepository from "../../repositories/systemUsersCache.repository.js";
 import * as tareasRepository from "../../repositories/tareas.repository.js";
 import type { ClienteBase, PostVentaCliente, PostVentaDataset } from "../../types/postventa.js";
+import { fetchAllIncidencias } from "../apiworking/incidenciasSync.js";
 import { fetchAllOrdenesServicio } from "../apiworking/ordenesSync.js";
 import { fetchAllPostVenta } from "../apiworking/postVentaSync.js";
 import { getConfig } from "./configService.js";
@@ -32,6 +34,7 @@ import { getConfig } from "./configService.js";
 interface RawState {
   clienteBases: ClienteBase[];
   generatedAt: string;
+  altaPendienteMap: Map<string, boolean>;
 }
 
 let rawState: RawState | null = null;
@@ -59,9 +62,9 @@ async function fetchRawState(): Promise<RawState> {
   const config = await getConfig();
   const hoy = todayIsoDate();
 
-  // Se traen en paralelo: son dos endpoints independientes de APIWorking, ni
-  // uno depende del resultado del otro.
-  const [rawRows, postVentaRows] = await Promise.all([
+  // Se traen en paralelo: son tres endpoints independientes de APIWorking,
+  // ninguno depende del resultado de otro.
+  const [rawRows, postVentaRows, incidenciaRows] = await Promise.all([
     fetchAllOrdenesServicio(token, {
       fechaInicio: config["sync.fecha_inicio"],
       fechaFin: hoy,
@@ -70,6 +73,7 @@ async function fetchRawState(): Promise<RawState> {
       f1: config["sync.post_venta_fecha_inicio"],
       f2: hoy,
     }),
+    fetchAllIncidencias(token),
   ]);
 
   const postVentaIndex = indexarPostVentaPorOrdenServicio(postVentaRows);
@@ -78,8 +82,9 @@ async function fetchRawState(): Promise<RawState> {
   );
   const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
   const clienteBases = groupOrdenesByCliente(osRefs, estadosExcluidos);
+  const altaPendienteMap = indexarAltaPendientePorCliente(incidenciaRows);
 
-  return { clienteBases, generatedAt: new Date().toISOString() };
+  return { clienteBases, generatedAt: new Date().toISOString(), altaPendienteMap };
 }
 
 // Fuerza a traer todo de nuevo desde APIWorking. Comparte la misma promesa si
@@ -102,7 +107,11 @@ export async function getPostVentaDataset(): Promise<PostVentaDataset> {
   if (!rawState) {
     await refreshRawDataset();
   }
-  const { clienteBases: clienteBasesSinFiltrar, generatedAt: rawGeneratedAt } = rawState!;
+  const {
+    clienteBases: clienteBasesSinFiltrar,
+    generatedAt: rawGeneratedAt,
+    altaPendienteMap,
+  } = rawState!;
 
   const config = await getConfig();
   const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
@@ -129,6 +138,7 @@ export async function getPostVentaDataset(): Promise<PostVentaDataset> {
         tareasAbiertasCount: tareasCounts?.abiertas ?? 0,
         tareasTotalCount: tareasCounts?.total ?? 0,
         systemUsersCache: systemUsersCacheMap.get(base.numeroDocumentoCliente) ?? null,
+        altaPendiente: altaPendienteMap.get(base.numeroDocumentoCliente) ?? false,
       },
       rawGeneratedAt
     );
@@ -165,7 +175,11 @@ export async function getClientesExcluidos(): Promise<PostVentaCliente[]> {
   if (!rawState) {
     await refreshRawDataset();
   }
-  const { clienteBases: clienteBasesSinFiltrar, generatedAt: rawGeneratedAt } = rawState!;
+  const {
+    clienteBases: clienteBasesSinFiltrar,
+    generatedAt: rawGeneratedAt,
+    altaPendienteMap,
+  } = rawState!;
 
   const config = await getConfig();
   const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
@@ -190,6 +204,7 @@ export async function getClientesExcluidos(): Promise<PostVentaCliente[]> {
         metadata: metadataMap.get(base.numeroDocumentoCliente) ?? null,
         notasCount: notasCountMap.get(base.numeroDocumentoCliente) ?? 0,
         tareasAbiertasCount: tareasCounts?.abiertas ?? 0,
+        altaPendiente: altaPendienteMap.get(base.numeroDocumentoCliente) ?? false,
         tareasTotalCount: tareasCounts?.total ?? 0,
         systemUsersCache: systemUsersCacheMap.get(base.numeroDocumentoCliente) ?? null,
       },

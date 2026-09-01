@@ -1,7 +1,8 @@
-CREATE TABLE postventa_llamadas (
+CREATE TABLE postventa_contactos (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   numero_documento_cliente VARCHAR(20) NOT NULL,
   id_orden_servicio BIGINT UNSIGNED NULL,
+  canal ENUM('LLAMADA', 'WHATSAPP') NOT NULL,
   usuario VARCHAR(150) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

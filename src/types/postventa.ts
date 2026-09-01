@@ -136,6 +136,24 @@ export interface PagoNormalizado {
   origen: string;
 }
 
+// Los 4 slots de documentacion de APIWorking (existeFile1..4) confirmados
+// con el negocio — orden fijo, no cambia por cliente. Ver calcularDocumentacion
+// en mappers/enrichment/documentacion.ts.
+export type ClaveDocumento = "CARTA" | "FOTO_DNI" | "CLAVE_SOL" | "PAGOS";
+
+export interface DocumentoDetalle {
+  clave: ClaveDocumento;
+  etiqueta: string;
+  disponible: boolean;
+}
+
+export interface DocumentacionResumen {
+  disponibles: number;
+  total: number;
+  porcentaje: number;
+  detalle: DocumentoDetalle[];
+}
+
 // ---------------------------------------------------------------------------
 // Salida del mapper (mappers/ordenServicio.mapper.ts) — una fila normalizada
 // ---------------------------------------------------------------------------
@@ -168,7 +186,7 @@ export interface OsRefNormalized {
   deudaProyectada: number;
   existeEquipo: boolean;
   idEquipo: string | null;
-  documentacion: { disponibles: number; total: number; porcentaje: number };
+  documentacion: DocumentacionResumen;
   facturas: { disponibles: number; equipoDisponibles: number };
   cantidadComprobantes: number;
   distribuidor: { id: string | null; nombre: string | null } | null;
@@ -222,7 +240,7 @@ export interface OsRefResumen {
   deudaProyectada: number;
   existeEquipo: boolean;
   idEquipo: string | null;
-  documentacion: { disponibles: number; total: number; porcentaje: number };
+  documentacion: DocumentacionResumen;
   facturas: { disponibles: number; equipoDisponibles: number };
   cantidadComprobantes: number;
   distribuidor: { id: string | null; nombre: string | null } | null;
@@ -282,7 +300,7 @@ export interface PostVentaCliente {
   antiguedad:
     | { texto: string; meses: number }
     | { texto: "No determinado"; meses: null };
-  documentacionGlobal: { disponibles: number; total: number; porcentaje: number };
+  documentacionGlobal: DocumentacionResumen;
   cantidadComprobantesHistorico: number;
 
   // Vencimiento de pago mas reciente ya cumplido, calculado desde fechaSistema
@@ -352,6 +370,11 @@ export interface PostVentaCliente {
   // cuadro de Clientes y la alerta SIN_ACTIVIDAD_RECIENTE usen exactamente
   // el mismo criterio (mismo patron que renovacionEnAlerta).
   sinActividadReciente: boolean;
+  // true si el cliente tiene al menos una incidencia "DAR DE ALTA AL
+  // CLIENTE" sin resolver en Administrativo/incidencias — precalculado por
+  // el sync diario (fetchAllIncidencias), nunca en vivo (36k+ incidencias
+  // historicas, no se puede pedir por request). Ver alerta ALTA_PENDIENTE.
+  altaPendiente: boolean;
 
   metadata: {
     notasCount: number;
@@ -504,13 +527,16 @@ export interface IncidenciaManual {
   createdAt: string;
 }
 
-// Registro de que alguien del equipo hizo clic en "Llamar" para un cliente —
-// no es un log de que la llamada realmente se hizo/conecto (no podemos
-// saberlo desde el navegador), solo que se inicio el intento.
-export interface Llamada {
+// Registro de que alguien del equipo hizo clic en "Llamar" o "WhatsApp" para
+// un cliente — no es un log de que la comunicacion realmente se concreto (no
+// podemos saberlo desde el navegador), solo que se inicio el intento.
+export type CanalContacto = "LLAMADA" | "WHATSAPP";
+
+export interface Contacto {
   id: number;
   numeroDocumentoCliente: string;
   idOrdenServicio: number | null;
+  canal: CanalContacto;
   usuario: string;
   createdAt: string;
 }

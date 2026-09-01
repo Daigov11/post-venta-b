@@ -170,7 +170,9 @@ export async function fetchHistorialSeguimiento(
 export interface IncidenciasQuery {
   // Filtra por numeroDocumentoCliente (o numero_os, otros campos matchean
   // tambien) — confirmado probando contra datos reales, no documentado.
-  search: string;
+  // Vacio/ausente trae TODAS las incidencias (usado por el sync masivo, ver
+  // incidenciasSync.ts).
+  search?: string;
   displayStart?: string | number;
   displayLength?: string | number;
 }
@@ -187,7 +189,7 @@ export async function fetchIncidencias(token: string, query: IncidenciasQuery): 
       fechaFin: new Date().toISOString().slice(0, 10),
       displayStart: query.displayStart ?? 0,
       displayLength: query.displayLength ?? 300,
-      search: query.search,
+      search: query.search ?? "",
     },
     token,
     "incidencias"

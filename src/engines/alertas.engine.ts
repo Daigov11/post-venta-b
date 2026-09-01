@@ -47,6 +47,25 @@ export const alertaRules: AlertaRule[] = [
     },
   },
   {
+    id: "alta-pendiente",
+    tipo: "ALTA_PENDIENTE",
+    nivel: "CRITICAL",
+    // El cliente tiene una incidencia "DAR DE ALTA AL CLIENTE" abierta en
+    // APIWorking (via CDT o PSE, da igual — mismo tipo de incidencia en el
+    // sistema) — grave: puede no estar realmente activo pese a figurar como
+    // cliente. Separada de "Documentacion incompleta" porque es una senal
+    // mas fuerte (no solo falta papeleo, el alta en si sigue sin cerrarse).
+    evaluate: (cliente) => {
+      if (!cliente.altaPendiente) return null;
+      return {
+        titulo: "Alta pendiente",
+        mensaje:
+          "Tiene una incidencia \"Dar de alta al cliente\" sin resolver — podría no estar activo en el sistema.",
+        idOrdenServicio: cliente.ordenVigente.idOrdenServicio,
+      };
+    },
+  },
+  {
     id: "sin-equipo",
     tipo: "SIN_EQUIPO",
     nivel: "WARNING",
@@ -67,9 +86,12 @@ export const alertaRules: AlertaRule[] = [
       if (cliente.documentacionGlobal.porcentaje >= config["estado.documentacion_completa_min"]) {
         return null;
       }
+      const faltantes = cliente.documentacionGlobal.detalle
+        .filter((d) => !d.disponible)
+        .map((d) => d.etiqueta);
       return {
         titulo: "Documentación incompleta",
-        mensaje: `Documentación al ${cliente.documentacionGlobal.porcentaje}% (${cliente.documentacionGlobal.disponibles}/${cliente.documentacionGlobal.total}).`,
+        mensaje: `Documentación al ${cliente.documentacionGlobal.porcentaje}% (${cliente.documentacionGlobal.disponibles}/${cliente.documentacionGlobal.total}) — falta: ${faltantes.join(", ")}.`,
         idOrdenServicio: cliente.ordenVigente.idOrdenServicio,
       };
     },
