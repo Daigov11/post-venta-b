@@ -1,0 +1,13 @@
+CREATE TABLE postventa_adjuntos (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  entidad_tipo ENUM('NOTA', 'TAREA_SEGUIMIENTO', 'REUNION', 'INCIDENCIA_MANUAL') NOT NULL,
+  entidad_id BIGINT UNSIGNED NOT NULL,
+  archivo VARCHAR(255) NOT NULL,
+  nombre_original VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(100) NOT NULL,
+  tamano_bytes INT UNSIGNED NOT NULL,
+  usuario VARCHAR(150) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_entidad (entidad_tipo, entidad_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

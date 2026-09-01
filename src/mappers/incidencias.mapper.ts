@@ -65,25 +65,41 @@ export function mapIncidenciaItem(raw: RawIncidenciaItem): Incidencia {
   };
 }
 
-// true = el cliente tiene al menos una incidencia "DAR DE ALTA AL CLIENTE"
-// sin resolver — señal grave: podria no estar activo en el sistema pese a
-// figurar como cliente. Usado por la alerta ALTA_PENDIENTE (ver
-// alertas.engine.ts) y calculado una vez por el sync diario (fetchAllIncidencias),
+// Señales derivadas de tipos de incidencia especificos, sin resolver — cada
+// una alimenta su propia alerta (ALTA_PENDIENTE, CERTIFICADO_POR_VENCER,
+// CERTIFICADO_VENCE_HOY, ver alertas.engine.ts). Calculadas una sola vez por
+// el sync diario (fetchAllIncidencias) sobre las 36k+ incidencias historicas,
 // nunca por request de usuario.
 const TIPO_ALTA = "DAR DE ALTA AL CLIENTE";
+const TIPO_CERT_POR_VENCER = "CERTIFICADO DIGITAL POR VENCER";
+const TIPO_CERT_VENCE_HOY = "CERTIFICADO DIGITAL SE VENCE HOY";
 
-export function indexarAltaPendientePorCliente(rows: RawIncidenciaItem[]): Map<string, boolean> {
-  const map = new Map<string, boolean>();
+export interface SenalesIncidenciasCliente {
+  altaPendiente: boolean;
+  certificadoPorVencer: boolean;
+  certificadoVenceHoy: boolean;
+}
+
+export function indexarSenalesIncidenciasPorCliente(
+  rows: RawIncidenciaItem[]
+): Map<string, SenalesIncidenciasCliente> {
+  const map = new Map<string, SenalesIncidenciasCliente>();
+  function marcar(numeroDocumento: string, campo: keyof SenalesIncidenciasCliente) {
+    let entry = map.get(numeroDocumento);
+    if (!entry) {
+      entry = { altaPendiente: false, certificadoPorVencer: false, certificadoVenceHoy: false };
+      map.set(numeroDocumento, entry);
+    }
+    entry[campo] = true;
+  }
   for (const row of rows) {
     const numeroDocumento = row.numerodocumento_cliente?.trim();
     if (!numeroDocumento) continue;
-    if ((row.ntipoincidencia ?? "").trim().toUpperCase() !== TIPO_ALTA) continue;
-    const resuelta = row.condicion === "C";
-    if (!resuelta) {
-      map.set(numeroDocumento, true);
-    } else if (!map.has(numeroDocumento)) {
-      map.set(numeroDocumento, false);
-    }
+    if (row.condicion === "C") continue; // solo interesan las que siguen abiertas
+    const tipo = (row.ntipoincidencia ?? "").trim().toUpperCase();
+    if (tipo === TIPO_ALTA) marcar(numeroDocumento, "altaPendiente");
+    else if (tipo === TIPO_CERT_VENCE_HOY) marcar(numeroDocumento, "certificadoVenceHoy");
+    else if (tipo === TIPO_CERT_POR_VENCER) marcar(numeroDocumento, "certificadoPorVencer");
   }
   return map;
 }

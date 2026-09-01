@@ -64,8 +64,10 @@ export interface LocalClienteContext {
   systemUsersCache: SystemUsersCache | null;
   // No es realmente "local" (MySQL) — viene del pull masivo de incidencias
   // de APIWorking, pero se pasa por el mismo bag por conveniencia. Ver
-  // altaPendienteMap en postventaCache.ts.
+  // senalesIncidenciasMap en postventaCache.ts.
   altaPendiente: boolean;
+  certificadoPorVencer: boolean;
+  certificadoVenceHoy: boolean;
 }
 
 export function enrichCliente(
@@ -221,6 +223,8 @@ export function enrichCliente(
     diasSinActividad,
     sinActividadReciente,
     altaPendiente: local.altaPendiente,
+    certificadoPorVencer: local.certificadoPorVencer,
+    certificadoVenceHoy: local.certificadoVenceHoy,
 
     metadata: {
       notasCount: local.notasCount,

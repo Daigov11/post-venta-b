@@ -1,7 +1,8 @@
 import { evaluateAlertas } from "../../engines/alertas.engine.js";
 import { groupOrdenesByCliente } from "../../mappers/cliente.aggregator.js";
 import { enrichCliente } from "../../mappers/enrichment/enrichCliente.js";
-import { indexarAltaPendientePorCliente } from "../../mappers/incidencias.mapper.js";
+import { indexarSenalesIncidenciasPorCliente } from "../../mappers/incidencias.mapper.js";
+import type { SenalesIncidenciasCliente } from "../../mappers/incidencias.mapper.js";
 import { mapOrdenServicioToOsRef } from "../../mappers/ordenServicio.mapper.js";
 import { indexarPostVentaPorOrdenServicio } from "../../mappers/postVenta.mapper.js";
 import { env } from "../../config/env.js";
@@ -34,7 +35,7 @@ import { getConfig } from "./configService.js";
 interface RawState {
   clienteBases: ClienteBase[];
   generatedAt: string;
-  altaPendienteMap: Map<string, boolean>;
+  senalesIncidenciasMap: Map<string, SenalesIncidenciasCliente>;
 }
 
 let rawState: RawState | null = null;
@@ -82,9 +83,9 @@ async function fetchRawState(): Promise<RawState> {
   );
   const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
   const clienteBases = groupOrdenesByCliente(osRefs, estadosExcluidos);
-  const altaPendienteMap = indexarAltaPendientePorCliente(incidenciaRows);
+  const senalesIncidenciasMap = indexarSenalesIncidenciasPorCliente(incidenciaRows);
 
-  return { clienteBases, generatedAt: new Date().toISOString(), altaPendienteMap };
+  return { clienteBases, generatedAt: new Date().toISOString(), senalesIncidenciasMap };
 }
 
 // Fuerza a traer todo de nuevo desde APIWorking. Comparte la misma promesa si
@@ -110,7 +111,7 @@ export async function getPostVentaDataset(): Promise<PostVentaDataset> {
   const {
     clienteBases: clienteBasesSinFiltrar,
     generatedAt: rawGeneratedAt,
-    altaPendienteMap,
+    senalesIncidenciasMap,
   } = rawState!;
 
   const config = await getConfig();
@@ -138,7 +139,11 @@ export async function getPostVentaDataset(): Promise<PostVentaDataset> {
         tareasAbiertasCount: tareasCounts?.abiertas ?? 0,
         tareasTotalCount: tareasCounts?.total ?? 0,
         systemUsersCache: systemUsersCacheMap.get(base.numeroDocumentoCliente) ?? null,
-        altaPendiente: altaPendienteMap.get(base.numeroDocumentoCliente) ?? false,
+        altaPendiente: senalesIncidenciasMap.get(base.numeroDocumentoCliente)?.altaPendiente ?? false,
+        certificadoPorVencer:
+          senalesIncidenciasMap.get(base.numeroDocumentoCliente)?.certificadoPorVencer ?? false,
+        certificadoVenceHoy:
+          senalesIncidenciasMap.get(base.numeroDocumentoCliente)?.certificadoVenceHoy ?? false,
       },
       rawGeneratedAt
     );
@@ -178,7 +183,7 @@ export async function getClientesExcluidos(): Promise<PostVentaCliente[]> {
   const {
     clienteBases: clienteBasesSinFiltrar,
     generatedAt: rawGeneratedAt,
-    altaPendienteMap,
+    senalesIncidenciasMap,
   } = rawState!;
 
   const config = await getConfig();
@@ -204,7 +209,11 @@ export async function getClientesExcluidos(): Promise<PostVentaCliente[]> {
         metadata: metadataMap.get(base.numeroDocumentoCliente) ?? null,
         notasCount: notasCountMap.get(base.numeroDocumentoCliente) ?? 0,
         tareasAbiertasCount: tareasCounts?.abiertas ?? 0,
-        altaPendiente: altaPendienteMap.get(base.numeroDocumentoCliente) ?? false,
+        altaPendiente: senalesIncidenciasMap.get(base.numeroDocumentoCliente)?.altaPendiente ?? false,
+        certificadoPorVencer:
+          senalesIncidenciasMap.get(base.numeroDocumentoCliente)?.certificadoPorVencer ?? false,
+        certificadoVenceHoy:
+          senalesIncidenciasMap.get(base.numeroDocumentoCliente)?.certificadoVenceHoy ?? false,
         tareasTotalCount: tareasCounts?.total ?? 0,
         systemUsersCache: systemUsersCacheMap.get(base.numeroDocumentoCliente) ?? null,
       },

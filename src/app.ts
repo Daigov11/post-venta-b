@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { env } from "./config/env.js";
+import { uploadsRootDir } from "./config/uploads.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { adjuntosRouter } from "./routes/adjuntos.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { ordenesRouter } from "./routes/ordenes.routes.js";
 import { dashboardRouter } from "./routes/dashboard.routes.js";
@@ -33,12 +35,14 @@ app.use(
 );
 app.use(express.json());
 app.use(cookieParser());
+app.use("/uploads", express.static(uploadsRootDir));
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/adjuntos", adjuntosRouter);
 app.use("/api/ordenes", ordenesRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/postventa", postventaRouter);

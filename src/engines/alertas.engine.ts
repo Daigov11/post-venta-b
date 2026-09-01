@@ -66,6 +66,33 @@ export const alertaRules: AlertaRule[] = [
     },
   },
   {
+    id: "certificado-vence-hoy",
+    tipo: "CERTIFICADO_VENCE_HOY",
+    nivel: "CRITICAL",
+    evaluate: (cliente) => {
+      if (!cliente.certificadoVenceHoy) return null;
+      return {
+        titulo: "Certificado digital vence hoy",
+        mensaje:
+          "El certificado digital del cliente vence hoy — riesgo de no poder emitir comprobantes.",
+        idOrdenServicio: cliente.ordenVigente.idOrdenServicio,
+      };
+    },
+  },
+  {
+    id: "certificado-por-vencer",
+    tipo: "CERTIFICADO_POR_VENCER",
+    nivel: "WARNING",
+    evaluate: (cliente) => {
+      if (!cliente.certificadoPorVencer) return null;
+      return {
+        titulo: "Certificado digital por vencer",
+        mensaje: "El certificado digital del cliente está próximo a vencer.",
+        idOrdenServicio: cliente.ordenVigente.idOrdenServicio,
+      };
+    },
+  },
+  {
     id: "sin-equipo",
     tipo: "SIN_EQUIPO",
     nivel: "WARNING",

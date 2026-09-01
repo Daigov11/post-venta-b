@@ -3,6 +3,10 @@ dist
 *.log
 .DS_Store
 
+# Adjuntos subidos por usuarios (imagenes de comentarios/notas) — datos, no
+# codigo. Persisten en el VPS pero no viajan por git.
+uploads
+
 # Variables de entorno con secretos reales (credenciales MySQL, token de
 # respaldo de APIWorking, etc.) — nunca se sube, solo .env.example
 .env

@@ -375,6 +375,11 @@ export interface PostVentaCliente {
   // el sync diario (fetchAllIncidencias), nunca en vivo (36k+ incidencias
   // historicas, no se puede pedir por request). Ver alerta ALTA_PENDIENTE.
   altaPendiente: boolean;
+  // Mismo mecanismo que altaPendiente, pero para incidencias "CERTIFICADO
+  // DIGITAL POR VENCER" / "CERTIFICADO DIGITAL SE VENCE HOY" sin resolver.
+  // Ver alertas CERTIFICADO_POR_VENCER / CERTIFICADO_VENCE_HOY.
+  certificadoPorVencer: boolean;
+  certificadoVenceHoy: boolean;
 
   metadata: {
     notasCount: number;
@@ -455,6 +460,12 @@ export interface PostVentaConfigValues {
 // Alertas / Oportunidades
 // ---------------------------------------------------------------------------
 export type NivelAlerta = "INFO" | "WARNING" | "CRITICAL";
+// ABIERTA = estado por defecto (calculado). VISTA/RESUELTA son marcas
+// manuales guardadas en postventa_alertas_estado — una vez marcada RESUELTA
+// queda asi hasta que alguien la reabra a mano, sin importar si la condicion
+// que la disparo sigue activa (decision explicita: "resuelta" significa que
+// ya se gestiono el caso, no que el dato de origen cambio).
+export type EstadoAlerta = "ABIERTA" | "VISTA" | "RESUELTA";
 
 export interface Alerta {
   id: string;
@@ -468,7 +479,7 @@ export interface Alerta {
   idOrdenServicio: number | null;
   fecha: string;
   origen: string;
-  estado: "ABIERTA";
+  estado: EstadoAlerta;
 }
 
 export interface Oportunidad {
@@ -510,6 +521,32 @@ export interface Nota {
   nota: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AlertaEstado {
+  alertaId: string;
+  numeroDocumentoCliente: string;
+  estado: "VISTA" | "RESUELTA";
+  nota: string | null;
+  usuario: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Adjuntos (imagenes) para comentarios/notas libres — un solo repositorio
+// generico en vez de una tabla de imagenes por cada tipo de comentario.
+export type EntidadAdjunto = "NOTA" | "TAREA_SEGUIMIENTO" | "REUNION" | "INCIDENCIA_MANUAL";
+
+export interface Adjunto {
+  id: number;
+  entidadTipo: EntidadAdjunto;
+  entidadId: number;
+  url: string;
+  nombreOriginal: string;
+  mimeType: string;
+  tamanoBytes: number;
+  usuario: string;
+  createdAt: string;
 }
 
 // Incidencia registrada a mano desde la app, mientras no esta conectado el
