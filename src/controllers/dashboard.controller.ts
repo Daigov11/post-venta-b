@@ -22,6 +22,101 @@ function topN(counts: Record<string, number>, n: number, labelKey: string) {
     .map(([key, count]) => ({ [labelKey]: key, count }));
 }
 
+// ---------------------------------------------------------------------------
+// KPIs financiero-operativos del Panel principal (Fase 1 Postventa).
+// Misma formula que ya usa frontend/src/pages/Renovaciones.tsx (esProblema/
+// esDeEsteMes/resumenMesCliente) — se replica aca en vez de inventar un
+// calculo distinto para el mismo concepto de "esperado"/"cobrado".
+// ---------------------------------------------------------------------------
+
+function esClienteEnProblema(cliente: PostVentaCliente): boolean {
+  return (
+    cliente.segmentoEfectivo === "CRITICO" ||
+    cliente.ordenVigente.nEstadoApiWorking.trim().toUpperCase() === "SUSPENDIDO POR PAGO"
+  );
+}
+
+function esMismoMes(iso: string | null, ref: Date): boolean {
+  if (!iso) return false;
+  const f = new Date(iso);
+  return f.getFullYear() === ref.getFullYear() && f.getMonth() === ref.getMonth();
+}
+
+function esMismoDia(iso: string | null, ref: Date): boolean {
+  if (!iso) return false;
+  const f = new Date(iso);
+  return (
+    f.getFullYear() === ref.getFullYear() &&
+    f.getMonth() === ref.getMonth() &&
+    f.getDate() === ref.getDate()
+  );
+}
+
+interface KpisPanel {
+  totalEsperadoMes: number;
+  estimadoRecaudarHoy: number;
+  totalCobradoMes: number;
+  deudaPorAntiguedad: { unMes: number; dosMeses: number; tresMasMeses: number };
+  clientesLoyalty: number;
+  renovacionesProximas: { count: number; monto: number };
+}
+
+// clientesLoyalty y renovacionesProximas usan campos ya confirmados
+// (sistemas.apiLoyalty, renovacionEnAlerta) — no hay campo real de "clientes
+// Google" ni "Pago QR" en ningun lado del dataset (buscado en todo el repo),
+// por eso no se calculan aca: el frontend los muestra como "Fuente pendiente
+// de validacion" en vez de inventar un valor.
+function calcularKpisPanel(clientes: PostVentaCliente[], ahora: Date): KpisPanel {
+  let totalEsperadoMes = 0;
+  let estimadoRecaudarHoy = 0;
+  let totalCobradoMes = 0;
+  let deudaUnMes = 0;
+  let deudaDosMeses = 0;
+  let deudaTresMasMeses = 0;
+  let clientesLoyalty = 0;
+  let renovacionesProximasCount = 0;
+  let renovacionesProximasMonto = 0;
+
+  for (const cliente of clientes) {
+    if (cliente.sistemas.apiLoyalty) clientesLoyalty += 1;
+
+    if (cliente.renovacionEnAlerta) {
+      renovacionesProximasCount += 1;
+      renovacionesProximasMonto += cliente.ingresoMensualReal ?? 0;
+    }
+
+    if (!esClienteEnProblema(cliente)) {
+      if (esMismoMes(cliente.proximaRenovacion, ahora)) {
+        totalEsperadoMes += cliente.ingresoMensualReal ?? 0;
+      }
+      if (esMismoDia(cliente.proximaRenovacion, ahora)) {
+        estimadoRecaudarHoy += cliente.ingresoMensualReal ?? 0;
+      }
+    }
+
+    for (const pago of cliente.ordenVigente.pagos) {
+      if (esMismoMes(pago.fechaEmitido, ahora)) {
+        totalCobradoMes += pago.total - pago.deuda;
+      }
+    }
+
+    if (cliente.deudaTotal > 0 && cliente.diasVencido !== null) {
+      if (cliente.diasVencido <= 30) deudaUnMes += cliente.deudaTotal;
+      else if (cliente.diasVencido <= 60) deudaDosMeses += cliente.deudaTotal;
+      else deudaTresMasMeses += cliente.deudaTotal;
+    }
+  }
+
+  return {
+    totalEsperadoMes,
+    estimadoRecaudarHoy,
+    totalCobradoMes,
+    deudaPorAntiguedad: { unMes: deudaUnMes, dosMeses: deudaDosMeses, tresMasMeses: deudaTresMasMeses },
+    clientesLoyalty,
+    renovacionesProximas: { count: renovacionesProximasCount, monto: renovacionesProximasMonto },
+  };
+}
+
 export async function getKpis(_req: Request, res: Response) {
   const dataset = await getPostVentaDataset();
   const config = await getConfig();
@@ -78,6 +173,8 @@ export async function getKpis(_req: Request, res: Response) {
   const oportunidades = evaluateOportunidades(clientes, config, dataset.generatedAt);
   const oportunidadesPorTipo = countBy(oportunidades, (o) => o.tipo);
 
+  const kpisPanel = calcularKpisPanel(clientes, new Date());
+
   res.status(200).json({
     generatedAt: dataset.generatedAt,
     totalClientes: clientes.length,
@@ -96,5 +193,6 @@ export async function getKpis(_req: Request, res: Response) {
     distribucionDepartamentos: topN(distribucionDepartamentosCounts, 10, "departamento"),
     alertasPorNivel,
     oportunidadesPorTipo,
+    ...kpisPanel,
   });
 }
