@@ -225,3 +225,12 @@ export async function fetchPostVenta(token: string, query: PostVentaQuery): Prom
     "post-venta"
   );
 }
+
+// Sin parametro de filtro que funcione (probado search/ruc/numeroDocumentoCliente/
+// numero_os, todos ignorados) — siempre trae el listado completo (~3300
+// registros a la fecha) en una sola llamada, sin paginacion. Se sincroniza
+// una vez al dia junto con el resto (ver postventaCache.ts), nunca en vivo
+// por cliente.
+export async function fetchCapacitaciones(token: string): Promise<unknown> {
+  return getConFallback("/Administrativo/capacitaciones", {}, token, "capacitaciones");
+}

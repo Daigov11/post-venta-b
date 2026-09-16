@@ -11,3 +11,8 @@ uploads
 # respaldo de APIWorking, etc.) — nunca se sube, solo .env.example
 .env
 .env.local
+
+# .env.example dejó de ignorarse aquí por seguridad: una edición local le
+# puso un JWT real de FALLBACK_API_TOKEN. Se desvincula de git para que ese
+# valor nunca quede en el historial; el archivo sigue existiendo en disco.
+.env.example

@@ -744,6 +744,23 @@ export interface Incidencia {
   automatico: boolean;
 }
 
+// Capacitaciones/reforzamientos dictados al cliente — sync diario desde
+// Administrativo/capacitaciones (ver mappers/capacitaciones.mapper.ts, el
+// dato real viene todo mezclado en HTML libre, esto ya es la version limpia).
+export interface Capacitacion {
+  idCapacitacion: number;
+  tipo: string; // "CAPACITACION" | "REFORZAMIENTO" | "" si no matcheo
+  estado: "CANCELADA" | "CAPACITADO" | "PENDIENTE";
+  numeroDocumentoCliente: string | null;
+  numeroOs: string | null;
+  fecha: string | null;
+  fechaFinal: string | null;
+  capacitador: string | null;
+  agendador: string | null;
+  vendedor: string | null;
+  modalidad: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Seguimiento Post Venta ("Meta Team") — onboarding de clientes recien
 // capacitados: 3 rondas de contacto (bienvenida, +15 dias, +30 dias desde la

@@ -1,4 +1,5 @@
 import { evaluateAlertas } from "../../engines/alertas.engine.js";
+import { indexarCapacitacionesPorCliente } from "../../mappers/capacitaciones.mapper.js";
 import { groupOrdenesByCliente } from "../../mappers/cliente.aggregator.js";
 import { enrichCliente } from "../../mappers/enrichment/enrichCliente.js";
 import { indexarSenalesIncidenciasPorCliente } from "../../mappers/incidencias.mapper.js";
@@ -11,7 +12,8 @@ import * as notasRepository from "../../repositories/notas.repository.js";
 import * as snapshotsRepository from "../../repositories/snapshotsDiarios.repository.js";
 import * as systemUsersCacheRepository from "../../repositories/systemUsersCache.repository.js";
 import * as tareasRepository from "../../repositories/tareas.repository.js";
-import type { ClienteBase, PostVentaCliente, PostVentaDataset } from "../../types/postventa.js";
+import type { Capacitacion, ClienteBase, PostVentaCliente, PostVentaDataset } from "../../types/postventa.js";
+import { fetchAllCapacitaciones } from "../apiworking/capacitacionesSync.js";
 import { fetchAllIncidencias } from "../apiworking/incidenciasSync.js";
 import { fetchAllOrdenesServicio } from "../apiworking/ordenesSync.js";
 import { fetchAllPostVenta } from "../apiworking/postVentaSync.js";
@@ -36,6 +38,7 @@ interface RawState {
   clienteBases: ClienteBase[];
   generatedAt: string;
   senalesIncidenciasMap: Map<string, SenalesIncidenciasCliente>;
+  capacitacionesMap: Map<string, Capacitacion[]>;
 }
 
 let rawState: RawState | null = null;
@@ -63,9 +66,9 @@ async function fetchRawState(): Promise<RawState> {
   const config = await getConfig();
   const hoy = todayIsoDate();
 
-  // Se traen en paralelo: son tres endpoints independientes de APIWorking,
+  // Se traen en paralelo: son cuatro endpoints independientes de APIWorking,
   // ninguno depende del resultado de otro.
-  const [rawRows, postVentaRows, incidenciaRows] = await Promise.all([
+  const [rawRows, postVentaRows, incidenciaRows, capacitacionRows] = await Promise.all([
     fetchAllOrdenesServicio(token, {
       fechaInicio: config["sync.fecha_inicio"],
       fechaFin: hoy,
@@ -75,6 +78,7 @@ async function fetchRawState(): Promise<RawState> {
       f2: hoy,
     }),
     fetchAllIncidencias(token),
+    fetchAllCapacitaciones(token),
   ]);
 
   const postVentaIndex = indexarPostVentaPorOrdenServicio(postVentaRows);
@@ -84,8 +88,14 @@ async function fetchRawState(): Promise<RawState> {
   const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
   const clienteBases = groupOrdenesByCliente(osRefs, estadosExcluidos);
   const senalesIncidenciasMap = indexarSenalesIncidenciasPorCliente(incidenciaRows);
+  const capacitacionesMap = indexarCapacitacionesPorCliente(capacitacionRows);
 
-  return { clienteBases, generatedAt: new Date().toISOString(), senalesIncidenciasMap };
+  return {
+    clienteBases,
+    generatedAt: new Date().toISOString(),
+    senalesIncidenciasMap,
+    capacitacionesMap,
+  };
 }
 
 // Fuerza a traer todo de nuevo desde APIWorking. Comparte la misma promesa si
@@ -220,6 +230,18 @@ export async function getClientesExcluidos(): Promise<PostVentaCliente[]> {
       rawGeneratedAt
     );
   });
+}
+
+// Capacitaciones no forman parte del PostVentaCliente enriquecido (no las usa
+// ninguna alerta/filtro, y son potencialmente varias por cliente) — quedan
+// en su propio indice, consultado bajo demanda desde la ficha del cliente.
+export async function getCapacitacionesPorCliente(
+  numeroDocumentoCliente: string
+): Promise<Capacitacion[]> {
+  if (!rawState) {
+    await refreshRawDataset();
+  }
+  return rawState!.capacitacionesMap.get(numeroDocumentoCliente) ?? [];
 }
 
 // Sync completo: trae todo de nuevo de APIWorking, re-enriquece, y guarda la

@@ -6,6 +6,7 @@ import { uploadsRootDir } from "./config/uploads.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { adjuntosRouter } from "./routes/adjuntos.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
+import { capacitacionesRouter } from "./routes/capacitaciones.routes.js";
 import { ordenesRouter } from "./routes/ordenes.routes.js";
 import { dashboardRouter } from "./routes/dashboard.routes.js";
 import { postventaRouter } from "./routes/postventa.routes.js";
@@ -43,6 +44,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/adjuntos", adjuntosRouter);
+app.use("/api/capacitaciones", capacitacionesRouter);
 app.use("/api/ordenes", ordenesRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/postventa", postventaRouter);
