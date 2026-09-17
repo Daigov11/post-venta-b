@@ -36,6 +36,14 @@ function esClienteEnProblema(cliente: PostVentaCliente): boolean {
   );
 }
 
+// getFullYear/getMonth/getDate leen en la hora LOCAL del proceso, no UTC —
+// correcto para "hoy"/"este mes" en Peru solo porque server.ts ya garantiza
+// TZ=America/Lima (fijado por el script npm y con fallback defensivo
+// `if (!process.env.TZ) process.env.TZ = "America/Lima"` para arranques que
+// no pasen por "npm run"). Auditado 2026-09: confirmado, no se duplica esa
+// garantia aca — si algun dia el proceso arranca sin ese fallback, todos los
+// KPIs de este archivo (y los calculos de ciclo de facturacion del resto del
+// backend) quedarian corridos al huso horario del servidor.
 function esMismoMes(iso: string | null, ref: Date): boolean {
   if (!iso) return false;
   const f = new Date(iso);
@@ -94,12 +102,28 @@ function calcularKpisPanel(clientes: PostVentaCliente[], ahora: Date): KpisPanel
       }
     }
 
+    // "Cobrado" = pago.total - pago.deuda por cada comprobante emitido este
+    // mes, sumado. pago.deuda documentado como "> 0 = todavia impago" (ver
+    // PagoNormalizado en types/postventa.ts) — total menos lo impago es lo
+    // efectivamente cobrado de ESE comprobante, incluye pagos parciales.
+    // Auditoria 2026-09: no existe una formula de "cobrado" agregado previa
+    // en el codigo (Renovaciones.tsx solo clasifica cada comprobante como
+    // PAGADO/DEBE segun si deuda>0, nunca suma un total cobrado) — esta es
+    // una derivacion nueva sobre dos campos ya confirmados, no una formula
+    // pre-validada por el negocio. Recomendado confirmar con el equipo antes
+    // de reportarla fuera de este panel interno.
     for (const pago of cliente.ordenVigente.pagos) {
       if (esMismoMes(pago.fechaEmitido, ahora)) {
         totalCobradoMes += pago.total - pago.deuda;
       }
     }
 
+    // Antiguedad de deuda en baldes de 30/60 dias sobre diasVencido (campo ya
+    // confirmado) — aproxima "1/2/3+ meses" por dias corridos, no por mes
+    // calendario exacto (ej. dia 31 cae en el mismo balde que dia 30). Es la
+    // lectura mas directa del pedido original ("agrupado por antiguedad: 1
+    // mes/2 meses/3 meses o mas"), sin un umbral de dias ya definido por el
+    // negocio que reemplazar.
     if (cliente.deudaTotal > 0 && cliente.diasVencido !== null) {
       if (cliente.diasVencido <= 30) deudaUnMes += cliente.deudaTotal;
       else if (cliente.diasVencido <= 60) deudaDosMeses += cliente.deudaTotal;
