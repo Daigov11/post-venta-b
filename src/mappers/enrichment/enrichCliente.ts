@@ -90,13 +90,18 @@ export function enrichCliente(
   // dia en que se registro la OS (fechaSistema), que puede no coincidir con
   // el dia de cobro real (caso real: OS registrada un dia del mes, ciclo
   // declarado "01 de cada mes"). Trimestral/Semestral/Anual no traen un dia
-  // utilizable en ese campo (viene el nombre de la periodicidad, no un dia),
-  // asi que siguen anclados en fechaSistema sin cambios.
+  // utilizable en ese campo (viene el nombre de la periodicidad, no un dia) —
+  // esas periodicidades se anclan al ultimo comprobante real en vez de a un
+  // dia de mes (ver usaUltimoComprobantePararRenovacion).
+  // diaCicloMensual se expone en el objeto final (no solo se usa para ajustar
+  // el ancla) porque Renovaciones (Fase 2) lo necesita para el filtro de
+  // ciclo 01/12/22, confirmado con negocio que solo aplica a Mensual.
   let fechaCicloAncla = fechaSistemaVigente;
+  let diaCicloMensual: number | null = null;
   if (fechaCicloAncla && planActual.periodicidad === "MENSUAL") {
-    const diaCiclo = parseDiaCicloMensual(base.ordenVigente.postVentaExtra?.nCicloFacturacion);
-    if (diaCiclo !== null) {
-      fechaCicloAncla = ajustarAnclaConDiaCiclo(fechaCicloAncla, diaCiclo);
+    diaCicloMensual = parseDiaCicloMensual(base.ordenVigente.postVentaExtra?.nCicloFacturacion);
+    if (diaCicloMensual !== null) {
+      fechaCicloAncla = ajustarAnclaConDiaCiclo(fechaCicloAncla, diaCicloMensual);
     }
   }
 
@@ -117,7 +122,9 @@ export function enrichCliente(
   // ultimo comprobante real cuando existe. Esto NO toca el Segmento de
   // cartera (sigue con fechaCicloAncla/fechaSistema mas abajo): puntualidad
   // de pago necesita un calendario independiente del propio comprobante que
-  // esta evaluando. Trimestral queda con fechaCicloAncla, sin cambios.
+  // esta evaluando. Trimestral tambien se ancla al ultimo comprobante para la
+  // renovacion (confirmado con negocio, Fase 2) pero el Segmento de cartera
+  // sigue con fechaCicloAncla/fechaSistema para Trimestral, mismo motivo.
   let proximaRenovacion: Date | null = null;
   if (usaUltimoComprobantePararRenovacion(planActual.periodicidad)) {
     proximaRenovacion = calcularProximaRenovacionDesdeComprobante(
@@ -196,6 +203,11 @@ export function enrichCliente(
     proximaRenovacion: toIsoOrNull(proximaRenovacion),
     diasParaRenovacion,
     renovacionEnAlerta,
+    // Dia de facturacion real (1/12/22/etc.) para clientes Mensual, tomado de
+    // nCicloFacturacion (Administrativo/post-venta) — null si la periodicidad
+    // no es Mensual o si APIWorking no trae un dia identificable (ver
+    // parseDiaCicloMensual). Nunca inventado.
+    diaCicloMensual,
     vencidoDesde: toIsoOrNull(vencidoDesde),
     diasVencido,
     ingresoMensualReal,

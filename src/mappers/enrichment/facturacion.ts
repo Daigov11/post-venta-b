@@ -88,9 +88,15 @@ export const MS_POR_DIA = 1000 * 60 * 60 * 24;
 
 // Periodicidades para las que la renovacion se ancla al ultimo comprobante
 // real en vez de a fechaSistema — ver calcularProximaRenovacionDesdeComprobante.
-// Trimestral queda deliberadamente afuera (decision del negocio: se mantiene
-// con la logica de fechaSistema por ahora).
-const PERIODICIDADES_ANCLADAS_A_COMPROBANTE = new Set<Periodicidad>(["SEMESTRAL", "ANUAL"]);
+// Trimestral se sumo aca tras confirmar con negocio (ronda de validacion de
+// Fase 2, ciclos de facturacion): debe basarse en la ultima factura real de
+// tipo Plan/Anualidad, igual que Semestral/Anual — ya no se mantiene con
+// fechaSistema.
+const PERIODICIDADES_ANCLADAS_A_COMPROBANTE = new Set<Periodicidad>([
+  "TRIMESTRAL",
+  "SEMESTRAL",
+  "ANUAL",
+]);
 
 export function usaUltimoComprobantePararRenovacion(periodicidad: Periodicidad): boolean {
   return PERIODICIDADES_ANCLADAS_A_COMPROBANTE.has(periodicidad);

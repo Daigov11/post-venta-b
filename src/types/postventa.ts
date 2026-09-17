@@ -319,6 +319,13 @@ export interface PostVentaCliente {
   // para que el filtro del cuadro de Clientes y la alerta RENOVACION_PROXIMA
   // usen exactamente el mismo criterio.
   renovacionEnAlerta: boolean;
+  // Dia real de facturacion (1/12/22/etc.) tomado de nCicloFacturacion
+  // (Administrativo/post-venta) — solo se calcula para periodicidad MENSUAL,
+  // confirmado con negocio (Fase 2) que el ciclo de facturacion como filtro
+  // solo aplica ahi; Trimestral/Semestral/Anual se anclan al ultimo
+  // comprobante real en su lugar (ver usaUltimoComprobantePararRenovacion).
+  // null si no es Mensual o si APIWorking no trae un dia identificable.
+  diaCicloMensual: number | null;
 
   // Desde que ciclo el cliente quedo sin pagar (ver calcularVencidoDesde) —
   // null si esta al dia. Distinto de proximaRenovacion: este mira hacia
