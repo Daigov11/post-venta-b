@@ -18,6 +18,14 @@ export const env = {
   sessionCookieName: required("SESSION_COOKIE_NAME", "pv_token"),
   sessionUserCookieName: required("SESSION_USER_COOKIE_NAME", "pv_user"),
   cookieSecure: (process.env.COOKIE_SECURE ?? "false") === "true",
+  // Secreto solo del servidor para derivar el identificador de
+  // postventa_sesion_apiworking (HMAC-SHA-256 del JWT) — nunca se guarda el
+  // JWT ni un hash simple de el. El fallback de desarrollo es intencional
+  // (entorno local); en produccion se debe fijar SESSION_HMAC_SECRET propio.
+  sessionHmacSecret: required(
+    "SESSION_HMAC_SECRET",
+    "dev-only-secret-nunca-usar-en-produccion"
+  ),
   mysql: {
     host: process.env.MYSQL_HOST ?? "localhost",
     port: Number(process.env.MYSQL_PORT ?? 3306),

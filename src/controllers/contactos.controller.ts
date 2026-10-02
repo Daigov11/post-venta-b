@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import * as contactosRepository from "../repositories/contactos.repository.js";
+import * as eventoOperativoRepository from "../repositories/eventoOperativo.repository.js";
 import type { CanalContacto } from "../types/postventa.js";
 
 const CANALES_VALIDOS: CanalContacto[] = ["LLAMADA", "WHATSAPP"];
@@ -28,5 +29,15 @@ export async function createContacto(req: Request, res: Response) {
     canal,
     usuario: req.usuario as string,
   });
+
+  await eventoOperativoRepository.registrarSeguro({
+    usuario: req.usuario as string,
+    tipoAccion: canal === "LLAMADA" ? "CONTACTO_LLAMADA" : "CONTACTO_WHATSAPP",
+    modulo: "CLIENTES",
+    numeroDocumentoCliente: created.numeroDocumentoCliente,
+    entidadTipo: "CLIENTE",
+    entidadId: created.numeroDocumentoCliente,
+  });
+
   res.status(201).json(created);
 }

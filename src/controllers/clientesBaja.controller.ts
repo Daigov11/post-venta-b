@@ -127,3 +127,83 @@ export async function listClientesBaja(req: Request, res: Response) {
     pendientesVerificar,
   });
 }
+
+const DIAS_UMBRAL_BAJA_ANTIGUA = 30;
+
+// Resumen para Renovaciones — "excluidos de proyeccion: baja con deuda
+// pendiente" (proxy de "falta de pago": no existe un motivo de baja
+// registrado en ningun lado del sistema, ver bajaSeguimiento.ts, asi que
+// nunca se afirma "falta de pago" como hecho). Solo lee de
+// postventa_baja_cache (no dispara busquedas nuevas contra APIWorking, para
+// que esta llamada sea rapida en cada carga de Renovaciones) — los clientes
+// de baja que todavia no se verificaron quedan en "sinVerificar", nunca se
+// asume una fecha para ellos.
+export async function getResumenBajas(_req: Request, res: Response) {
+  const excluidos = await getClientesExcluidos();
+  const cacheMap = await bajaCacheRepository.findAllByClientes(
+    excluidos.map((c) => c.numeroDocumentoCliente)
+  );
+
+  const hoy = Date.now();
+  let sinVerificar = 0;
+  let sinFechaConfirmada = 0;
+  let recientes = 0; // baja con fecha, pero <= 30 dias — todavia no entra al conteo de "excluidos por falta de pago"
+  let antiguasSinDeuda = 0;
+  let antiguasConDeuda = 0;
+  let antiguasConDeudaMonto = 0;
+  const clientesConDeuda: {
+    numeroDocumentoCliente: string;
+    nombreCliente: string;
+    sistemas: (typeof excluidos)[number]["sistemas"];
+    planActual: (typeof excluidos)[number]["planActual"];
+    deudaTotal: number;
+    ejecutivo: string | null;
+    fechaBaja: string | null;
+  }[] = [];
+
+  for (const cliente of excluidos) {
+    const cache = cacheMap.get(cliente.numeroDocumentoCliente);
+    if (!cache) {
+      sinVerificar += 1;
+      continue;
+    }
+    if (!cache.fechaBaja) {
+      sinFechaConfirmada += 1;
+      continue;
+    }
+    const dias = Math.floor((hoy - new Date(cache.fechaBaja).getTime()) / (1000 * 60 * 60 * 24));
+    if (dias <= DIAS_UMBRAL_BAJA_ANTIGUA) {
+      recientes += 1;
+      continue;
+    }
+    if (cliente.deudaTotal > 0) {
+      antiguasConDeuda += 1;
+      antiguasConDeudaMonto += cliente.deudaTotal;
+      clientesConDeuda.push({
+        numeroDocumentoCliente: cliente.numeroDocumentoCliente,
+        nombreCliente: cliente.nombreCliente,
+        sistemas: cliente.sistemas,
+        planActual: cliente.planActual,
+        deudaTotal: cliente.deudaTotal,
+        ejecutivo: cliente.ordenVigente.ejecutivo,
+        fechaBaja: cache.fechaBaja,
+      });
+    } else {
+      antiguasSinDeuda += 1;
+    }
+  }
+
+  res.status(200).json({
+    totalBajas: excluidos.length,
+    sinVerificar,
+    sinFechaConfirmada,
+    recientes,
+    excluidosPorFaltaDePago: {
+      count: antiguasConDeuda,
+      monto: antiguasConDeudaMonto,
+      clientes: clientesConDeuda,
+    },
+    bajaSinDeudaMasDe30Dias: { count: antiguasSinDeuda },
+    umbralDias: DIAS_UMBRAL_BAJA_ANTIGUA,
+  });
+}

@@ -319,6 +319,14 @@ export interface PostVentaCliente {
   // para que el filtro del cuadro de Clientes y la alerta RENOVACION_PROXIMA
   // usen exactamente el mismo criterio.
   renovacionEnAlerta: boolean;
+  // false unicamente cuando la periodicidad necesita anclarse a un
+  // comprobante real de renovacion (Trimestral/Semestral/Anual, ver
+  // usaUltimoComprobantePararRenovacion) y el cliente nunca tuvo uno — la
+  // fecha cayo al respaldo de fechaSistema, que puede errar por meses. Para
+  // Mensual siempre true (fechaSistema + dia de ciclo real es confiable).
+  // No es una regla nueva: solo expone una distincion que el calculo ya
+  // hacia internamente (ver enrichCliente.ts / Renovaciones Fase 3.1).
+  renovacionAnclaConfiable: boolean;
   // Dia real de facturacion (1/12/22/etc.) tomado de nCicloFacturacion
   // (Administrativo/post-venta) — solo se calcula para periodicidad MENSUAL,
   // confirmado con negocio (Fase 2) que el ciclo de facturacion como filtro
@@ -395,6 +403,13 @@ export interface PostVentaCliente {
     alertasCount: { INFO: number; WARNING: number; CRITICAL: number };
   };
 
+  // Solo presente en GET /api/clientes (Cartera) — cuantos episodios de
+  // recuperacion ABIERTOS (EN_RECUPERACION/PENDIENTE_VALIDACION) tiene este
+  // RUC en ordenes DISTINTAS a la vigente. No cuenta la propia ordenVigente
+  // si esta en recuperacion (ver modulo Recuperacion) — evita duplicar la
+  // info que ya se ve como "orden activa" en la fila.
+  recuperacionAbiertaCount?: number;
+
   generatedAt: string;
 }
 
@@ -461,6 +476,31 @@ export interface PostVentaConfigValues {
   "seguimiento.dias_etapa2": number;
   "seguimiento.dias_etapa3": number;
   "seguimiento.fecha_corte_clientes_nuevos": string;
+  // Corte entre "historial" y "trabajo activo" (2026-09-21, alcance ampliado
+  // 2026-09-21): incidencias pendientes con fecha anterior a esto dejan de
+  // alimentar Dashboard/Alertas activas/prioridades/Misiones de hoy (ver
+  // indexarSenalesIncidenciasPorCliente). Ademas, TODA alerta global (deuda,
+  // certificado, documentacion, renovacion, etc.) de un cliente/sistema cuyo
+  // ordenVigente.fechaSistema sea anterior a esto queda fuera de GET
+  // /api/alertas, cola urgente, contadores del Dashboard y
+  // metadata.alertasCount — ver filtrarClientesDesdeCorteHistorico en
+  // alertas.engine.ts. En ambos casos, la ficha/historial del cliente sigue
+  // mostrando todo sin filtrar, y nunca se borra ni se marca resuelto
+  // automaticamente — solo se saca de la vista operativa diaria/global.
+  "operativo.fecha_corte_historico": string;
+  // Lista mas amplia que dataset.estados_excluidos, usada solo para el
+  // desempate de pickOrdenVigente() (cliente.aggregator.ts) — una orden en
+  // uno de estos estados nunca gana el "vigente" por sobre una orden
+  // realmente activa del mismo cliente, aunque sea mas reciente. A
+  // diferencia de estados_excluidos, NO saca al cliente del dataset (ver
+  // modulo Recuperacion).
+  "dataset.estados_no_vigentes": string;
+  // Modulo Recuperacion de clientes: dias de gracia despues de la fecha
+  // esperada de renovacion antes de considerar una orden "renovacion
+  // impaga", y dias de permanencia en la cola antes de marcarla PERDIDO
+  // automaticamente si nadie la recupera.
+  "recuperacion.dias_gracia_renovacion": number;
+  "recuperacion.dias_permanencia": number;
 }
 
 // ---------------------------------------------------------------------------
@@ -484,10 +524,15 @@ export interface Alerta {
   nombreCliente: string;
   sistemas: ClienteSistemas;
   idOrdenServicio: number | null;
+  // Necesario para las acciones de contacto directo (Llamar/WhatsApp) desde
+  // la propia tarjeta de alerta — ver rediseno de Alertas (Fase 3).
+  telefonoEfectivo: string | null;
   fecha: string;
   origen: string;
   estado: EstadoAlerta;
 }
+
+export type EstadoOportunidad = "ABIERTA" | "EN_GESTION" | "GANADA" | "PERDIDA";
 
 export interface Oportunidad {
   id: string;
@@ -501,6 +546,123 @@ export interface Oportunidad {
   valorEstimado: number | "No determinado";
   fecha: string;
   origen: string;
+  // Gestion manual — ver postventa_oportunidades_estado. Sin override
+  // guardado, una oportunidad recien detectada es ABIERTA, sin responsable
+  // ni siguiente accion asignados todavia (no se inventa un responsable
+  // default).
+  estado: EstadoOportunidad;
+  responsable: string | null;
+  siguienteAccion: string | null;
+  resultado: string | null;
+}
+
+export interface OportunidadEstado {
+  oportunidadId: string;
+  numeroDocumentoCliente: string;
+  estado: EstadoOportunidad;
+  responsable: string | null;
+  siguienteAccion: string | null;
+  resultado: string | null;
+  usuario: string;
+  // tipo/montoDeclarado solo se llenan cuando estado='GANADA' (ver
+  // migracion 0041/0042) — tipo se copia de Oportunidad.tipo al momento de
+  // marcarla ganada (para poder sumar "La Bolsa" por tipo sin re-evaluar el
+  // motor sobre historial pasado). montoDeclarado (antes "montoReal") NO es
+  // una cifra verificada contra un pago real de APIWorking — se
+  // autocompleta con valorEstimado cuando el motor ya trae un numero real
+  // (hoy solo MIGRACION_PERIODICIDAD), o lo escribe la persona a mano para
+  // el resto; es lo que alguien declaro, nunca una conciliacion de caja.
+  tipo: string | null;
+  montoDeclarado: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// "La Bolsa" — reemplaza al modulo Resultados (postventa_resultado_dia/
+// accion/conversion, ver migracion 0033, que queda congelado como
+// historial). Permite multiples aperturas/cierres el mismo dia por usuario
+// (pedido explicito) — la clave real de "a que apertura pertenece esto" es
+// (usuario, fecha, numeroApertura), no solo (usuario, fecha). Los
+// contadores/montos NUNCA se persisten: se calculan en vivo sobre datos
+// reales en la ventana [abiertaEn, cerradaEn o ahora] (ver
+// services/postventa/bolsaResumen.ts) para que nunca queden desactualizados.
+//
+// Ajuste (feedback post-0041): se retiro el concepto de superadmin/roles
+// (bolsa.admins) — no se introduce un rol nuevo sin decision explicita del
+// negocio. Cada usuario ve unicamente su propia bolsa.
+// ---------------------------------------------------------------------------
+export type EstadoBolsaSesion = "ABIERTA" | "CERRADA";
+export type OrigenBolsaSesion = "AUTOMATICA" | "MANUAL";
+
+// Categorias fijas de conversion (ajuste post-0041: antes texto libre) —
+// "OTRO" es una red de seguridad de migracion para historial que no calce
+// con las 6 categorias reales, nunca se ofrece como opcion nueva.
+export type TipoBolsaConversion =
+  | "CAMBIO_PERIODICIDAD"
+  | "ADQUISICION_EQUIPO"
+  | "RECUPERACION_CLIENTE"
+  | "VENTA_PRODUCTO"
+  | "APILOYALTY"
+  | "APIREVIEW"
+  | "OTRO";
+
+export interface BolsaSesion {
+  id: number;
+  usuario: string;
+  fecha: string; // YYYY-MM-DD
+  numeroApertura: number;
+  abiertaEn: string;
+  cerradaEn: string | null;
+  origenApertura: OrigenBolsaSesion;
+  origenCierre: OrigenBolsaSesion | null;
+  observacionCierre: string | null;
+  estado: EstadoBolsaSesion;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BolsaConversion {
+  id: number;
+  bolsaSesionId: number;
+  tipo: TipoBolsaConversion;
+  descripcion: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface BolsaOportunidadGanada {
+  tipo: string;
+  cantidad: number;
+  montoTotal: number;
+}
+
+export interface BolsaResumen {
+  contactos: number;
+  misionesCompletadas: number;
+  oportunidadesGanadas: BolsaOportunidadGanada[];
+  totalSoles: number;
+  conversiones: BolsaConversion[];
+}
+
+// "Resumen del dia anterior" — la notificacion que se muestra al primer
+// ingreso del dia siguiente (pedido explicito), nunca automatica en el
+// sentido de "calculada e inventada": son los mismos datos reales del dia
+// de ayer, agregados. El frontend decide mostrarla una sola vez (guarda que
+// ya se cerro) — el backend simplemente la devuelve siempre que haya datos.
+export interface BolsaResumenDiaAnterior {
+  fecha: string;
+  aperturas: number;
+  cierres: number;
+  clientesContactadosUnicos: number;
+  misionesCompletadas: number;
+  conversionesPorCategoria: { tipo: TipoBolsaConversion; cantidad: number }[];
+}
+
+export interface BolsaEstado {
+  sesion: BolsaSesion | null;
+  resumen: BolsaResumen;
+  resumenDiaAnterior: BolsaResumenDiaAnterior | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -592,15 +754,59 @@ export type EstadoTarea =
   | "ESPERANDO_CLIENTE"
   | "COMPLETADA"
   | "CANCELADA";
-// RENOVACION = generada automaticamente por sincronizarTareasRenovacion,
-// MANUAL = creada a mano desde la ficha del cliente (createTarea).
-export type TipoTarea = "MANUAL" | "RENOVACION";
+// Naturaleza de la tarea — que tipo de trabajo es, independiente de como se
+// creo (ver OrigenTarea). RENOVACION = generada automaticamente por
+// sincronizarTareasRenovacion (naturaleza y origen coinciden ahi, es el
+// unico caso). PENDIENTE_CLASIFICACION = tareas historicas creadas antes de
+// que existiera esta separacion (ex "MANUAL") — nunca se les asigna
+// cobranza/soporte/etc. sin evidencia real, ver migracion 0036.
+export type TipoTarea =
+  | "RENOVACION"
+  | "PENDIENTE_CLASIFICACION"
+  | "COBRANZA"
+  | "DOCUMENTACION"
+  | "SOPORTE"
+  | "SEGUIMIENTO"
+  | "REUNION"
+  | "OPORTUNIDAD_COMERCIAL";
+
+// Como se creo la tarea (distinto de TipoTarea, que es la naturaleza del
+// trabajo). MANUAL = creada a mano sin partir de ninguna otra pantalla.
+export type OrigenTarea =
+  | "MANUAL"
+  | "ALERTA"
+  | "INCIDENCIA"
+  | "FICHA_CLIENTE"
+  | "OPORTUNIDAD"
+  | "RENOVACION"
+  // Generado por sincronizarTareasRepartoMensual (services/postventa/
+  // repartoMensualContacto.ts) — reparto automatico de TODOS los clientes
+  // activos entre los dias habiles del mes, para asegurar un contacto de
+  // seguimiento mensual. No hay ningun selector de origen en la UI de
+  // creacion manual (el origen lo fija el contexto: alerta/incidencia/
+  // ficha/oportunidad), asi que esto en la practica solo lo genera el sync.
+  | "REPARTO_MENSUAL"
+  | "RECUPERACION";
 
 export interface Tarea {
   id: number;
   numeroDocumentoCliente: string;
   idOrdenServicio: number | null;
   tipo: TipoTarea;
+  origen: OrigenTarea;
+  // Entidad puntual que disparo la creacion (ej. origen=INCIDENCIA ->
+  // origenEntidadTipo='INCIDENCIA', origenEntidadId=idIncidencia como
+  // string) — null cuando el origen no tiene una entidad puntual (MANUAL) o
+  // es una tarea historica sin ese dato (ver migracion 0036).
+  origenEntidadTipo: string | null;
+  origenEntidadId: string | null;
+  // "YYYY-MM" — a que mes pertenece este reparto (ver migracion 0040).
+  // Inmutable una vez creada, a diferencia de fechaVencimiento (que SI puede
+  // redistribuirse) — es la clave real de deduplicacion mensual, con
+  // restriccion UNIQUE real en la base (numero_documento_cliente, origen,
+  // periodo_reparto). Solo se usa con origen=REPARTO_MENSUAL; null en
+  // cualquier otro origen.
+  periodoReparto: string | null;
   titulo: string;
   descripcion: string | null;
   responsable: string;
@@ -751,6 +957,13 @@ export interface Incidencia {
   automatico: boolean;
 }
 
+// Catalogo real de GET /Administrativo/tipo-incidencias — solo tipos activos
+// (estado "A"), confirmado via prueba controlada. Ver externalApi.ts.
+export interface TipoIncidenciaCatalogo {
+  id: number;
+  nombre: string;
+}
+
 // Capacitaciones/reforzamientos dictados al cliente — sync diario desde
 // Administrativo/capacitaciones (ver mappers/capacitaciones.mapper.ts, el
 // dato real viene todo mezclado en HTML libre, esto ya es la version limpia).
@@ -837,4 +1050,171 @@ export interface SeguimientoDetalle {
   etapaActual: EtapaActualInfo | null;
   incidencias: HistorialSeguimientoEvento[];
   notas: Nota[];
+}
+
+// ---------------------------------------------------------------------------
+// Resultados y cierre diario (Fase 3) — 100% local, sin dependencia de
+// APIWorking. Un ResultadoDia por usuario por fecha (UNIQUE en la tabla).
+// No existe monto de cierre ni diferencia de cuadre: a proposito, ver
+// migracion 0033 y Decisiones Fase 3.
+// ---------------------------------------------------------------------------
+export type EstadoResultadoDia = "ABIERTO" | "CERRADO";
+export type TipoConversion = "EQUIPO" | "PLAN" | "MODULO";
+
+export interface ResultadoAccion {
+  id: number;
+  resultadoDiaId: number;
+  tipo: string;
+  realizadas: number;
+  noRealizadas: number;
+}
+
+export interface ResultadoConversion {
+  id: number;
+  resultadoDiaId: number;
+  tipo: TipoConversion;
+  cantidad: number;
+  detalle: string | null;
+}
+
+export interface ResultadoDia {
+  id: number;
+  usuario: string;
+  fecha: string; // YYYY-MM-DD
+  estado: EstadoResultadoDia;
+  montoApertura: number;
+  horaApertura: string;
+  horaCierre: string | null;
+  observacionCierre: string | null;
+  avisoAdministracion: boolean;
+  motivoAviso: string | null;
+  acciones: ResultadoAccion[];
+  conversiones: ResultadoConversion[];
+}
+
+// Fila resumida para el historico — sin las acciones/conversiones completas,
+// solo los totales (suma exacta, no una formula de evaluacion).
+export interface ResultadoDiaResumen {
+  id: number;
+  usuario: string;
+  fecha: string;
+  estado: EstadoResultadoDia;
+  montoApertura: number;
+  horaApertura: string;
+  horaCierre: string | null;
+  avisoAdministracion: boolean;
+  totalRealizadas: number;
+  totalNoRealizadas: number;
+  totalConversiones: number;
+  conversionesPorTipo: Record<TipoConversion, number>;
+}
+
+// ---------------------------------------------------------------------------
+// Registro automatico de eventos operativos (ajuste funcional Fase 3)
+// ---------------------------------------------------------------------------
+// Catalogo cerrado y validado server-side a proposito — nunca texto libre
+// del frontend, para que "accion operativa real" siga significando algo
+// concreto y no un click de navegacion cualquiera. Cada valor corresponde a
+// una escritura real ya existente en su propio controller (ver comentario en
+// repositories/eventoOperativo.repository.ts para el mapeo completo).
+export type TipoAccionOperativa =
+  | "CONTACTO_LLAMADA"
+  | "CONTACTO_WHATSAPP"
+  | "TAREA_CREADA"
+  | "TAREA_COMPLETADA"
+  | "TAREA_POSTERGADA"
+  | "TAREA_REASIGNADA"
+  | "ALERTA_RESUELTA"
+  | "INCIDENCIA_CREADA"
+  | "SEGUIMIENTO_REGISTRADO"
+  | "OPORTUNIDAD_GESTIONADA"
+  | "CONVERSION_REGISTRADA"
+  | "DIA_ABIERTO"
+  | "DIA_CERRADO"
+  | "RECUPERACION_MARCADA_RECUPERADO"
+  | "RECUPERACION_MARCADA_PERDIDO"
+  | "RECUPERACION_REASIGNADA";
+
+export type ModuloOperativo =
+  | "CLIENTES"
+  | "TAREAS"
+  | "ALERTAS"
+  | "INCIDENCIAS"
+  | "SEGUIMIENTOS"
+  | "OPORTUNIDADES"
+  | "RESULTADOS"
+  | "RECUPERACION";
+
+export interface EventoOperativo {
+  id: number;
+  usuario: string;
+  tipoAccion: TipoAccionOperativa;
+  modulo: ModuloOperativo;
+  numeroDocumentoCliente: string | null;
+  entidadTipo: string | null;
+  entidadId: string | null;
+  resultado: string;
+  detalle: string | null;
+  createdAt: string;
+}
+
+export interface ResumenEventosOperativos {
+  usuario: string;
+  fecha: string;
+  total: number;
+  porTipo: Partial<Record<TipoAccionOperativa, number>>;
+}
+
+// ---------------------------------------------------------------------------
+// Modulo "Recuperacion de clientes" — la unidad es la orden de servicio
+// (idOrdenServicio), nunca el RUC. Ver migracion 0044.
+// ---------------------------------------------------------------------------
+export type OrigenRecuperacion = "RENOVACION_IMPAGA" | "SUSPENSION" | "BAJA";
+export type EstadoRecuperacion =
+  | "EN_RECUPERACION"
+  | "RECUPERADO"
+  | "PERDIDO"
+  | "PENDIENTE_VALIDACION";
+
+export interface EpisodioRecuperacion {
+  id: number;
+  idOrdenServicio: number;
+  numeroDocumentoCliente: string;
+  nombreCliente: string;
+  origen: OrigenRecuperacion;
+  numeroEpisodio: number;
+  estado: EstadoRecuperacion;
+  fechaIngreso: string | null;
+  fechaLimite: string | null;
+  motivo: string | null;
+  responsable: string | null;
+  resultado: string | null;
+  fechaRecuperacion: string | null;
+  fechaPerdida: string | null;
+  creadoPor: string;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+// Salida del motor de deteccion (recuperacion.engine.ts) — un candidato por
+// orden que actualmente cumple alguna de las 3 reglas, con la evidencia real
+// disponible (nunca inventada) para que el service decida si ya existe un
+// episodio abierto o hay que crear uno nuevo.
+export interface CandidatoRecuperacion {
+  idOrdenServicio: number;
+  numeroDocumentoCliente: string;
+  nombreCliente: string;
+  origen: OrigenRecuperacion;
+  // true solo cuando hay evidencia real y confiable del hecho que origina la
+  // recuperacion (fecha de vencimiento calculada para renovacion, o fecha de
+  // baja ya cacheada) — false obliga a PENDIENTE_VALIDACION (ver auditoria:
+  // suspension nunca tiene fecha real, baja solo a veces). NO es la fecha de
+  // ingreso operativa — esa siempre es "hoy" (ver recuperacionService.ts):
+  // los 30 dias de permanencia cuentan desde que la orden entra a ESTA cola,
+  // nunca desde cuando el problema empezo historicamente (evita que un
+  // vencimiento de hace meses nazca ya "perdido" el mismo dia que se detecta
+  // por primera vez).
+  evidenciaConfirmada: boolean;
+  motivo: string;
+  monto: number;
 }

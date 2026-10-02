@@ -126,12 +126,24 @@ export function enrichCliente(
   // renovacion (confirmado con negocio, Fase 2) pero el Segmento de cartera
   // sigue con fechaCicloAncla/fechaSistema para Trimestral, mismo motivo.
   let proximaRenovacion: Date | null = null;
+  // Confiable = se pudo anclar al ultimo comprobante REAL de renovacion
+  // (Trimestral/Semestral/Anual) o, para Mensual, siempre (fechaSistema +
+  // dia de ciclo real es un margen de error mucho menor, nunca se cuestiono
+  // en la validacion de negocio). No confiable = una periodicidad que
+  // necesita comprobante-ancla nunca tuvo uno y cayo al respaldo de
+  // fechaSistema — ese respaldo puede errar por meses (ver comentario en
+  // calcularProximaRenovacionDesdeComprobante, facturacion.ts). Expuesto tal
+  // cual para Renovaciones (Fase 3.1, proyeccion de cobranza) — no cambia la
+  // regla de anclaje en si, solo hace visible una distincion que el codigo
+  // ya hacia internamente.
+  let renovacionAnclaConfiable = true;
   if (usaUltimoComprobantePararRenovacion(planActual.periodicidad)) {
     proximaRenovacion = calcularProximaRenovacionDesdeComprobante(
       base.ordenVigente.pagos,
       planActual.periodicidad,
       new Date(generatedAt)
     );
+    renovacionAnclaConfiable = proximaRenovacion !== null;
   }
   if (proximaRenovacion === null && fechaCicloAncla) {
     proximaRenovacion = calcularProximoVencimiento(
@@ -203,6 +215,7 @@ export function enrichCliente(
     proximaRenovacion: toIsoOrNull(proximaRenovacion),
     diasParaRenovacion,
     renovacionEnAlerta,
+    renovacionAnclaConfiable,
     // Dia de facturacion real (1/12/22/etc.) para clientes Mensual, tomado de
     // nCicloFacturacion (Administrativo/post-venta) — null si la periodicidad
     // no es Mensual o si APIWorking no trae un dia identificable (ver

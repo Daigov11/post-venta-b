@@ -232,6 +232,7 @@ export function evaluateAlertas(
         nombreCliente: cliente.nombreCliente,
         sistemas: cliente.sistemas,
         idOrdenServicio: result.idOrdenServicio,
+        telefonoEfectivo: cliente.telefonoEfectivo,
         fecha: generatedAt,
         origen: rule.id,
         estado: "ABIERTA",
@@ -239,4 +240,36 @@ export function evaluateAlertas(
     }
   }
   return alertas;
+}
+
+// Corte historico operativo (operativo.fecha_corte_historico, ver
+// postventa_config): filtra que clientes/sistemas participan de las
+// superficies GLOBALES de alertas (GET /api/alertas, cola urgente y
+// contadores del Dashboard, metadata.alertasCount usado por la columna
+// "Alertas" de Cartera y por la priorizacion de Tareas/Renovaciones) — un
+// cliente/sistema anterior al corte no genera alerta en ninguna de esas
+// vistas, sea cual sea el tipo (deuda, certificado, documentacion,
+// renovacion u otra). Deliberadamente NO se usa dentro de evaluate() de cada
+// regla ni en getFichaCliente (clientes.controller.ts): la ficha de un
+// cliente puntual sigue mostrando su historial completo de alertas sin este
+// filtro, tal cual se pidio ("su informacion debe mantenerse visible
+// unicamente en la ficha/historial del cliente").
+//
+// ordenVigente.fechaSistema es el campo elegido: marca cuando se registro en
+// el sistema la orden de servicio vigente (ancla de facturacion, ver
+// OsRefNormalized.fechaSistema), es por sistema/orden (coherente con que el
+// pedido hable de "clientes/sistemas", no solo de clientes), y auditoria
+// 2026-09-21 sobre el dataset completo (2465 clientes) confirmo 0% de nulos.
+// Se descartaron fechaInicioCliente (37.0% nulos) y
+// ordenVigente.postVentaExtra.fechaInstalacion (28.5% nulos) por no ser
+// suficientemente confiables para un filtro que corre sobre todo el dataset.
+export function filtrarClientesDesdeCorteHistorico(
+  clientes: PostVentaCliente[],
+  config: PostVentaConfigValues
+): PostVentaCliente[] {
+  const corte = config["operativo.fecha_corte_historico"];
+  return clientes.filter((cliente) => {
+    const fechaSistema = cliente.ordenVigente.fechaSistema;
+    return fechaSistema !== null && fechaSistema >= corte;
+  });
 }

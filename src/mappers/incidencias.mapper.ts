@@ -1,4 +1,14 @@
-import type { Incidencia } from "../types/postventa.js";
+import type { Incidencia, TipoIncidenciaCatalogo } from "../types/postventa.js";
+
+export interface RawTipoIncidencia {
+  id: number;
+  descripcion: string;
+  estado: string;
+}
+
+export function mapTipoIncidencia(raw: RawTipoIncidencia): TipoIncidenciaCatalogo {
+  return { id: raw.id, nombre: raw.descripcion };
+}
 
 export interface RawIncidenciaItem {
   total?: number;
@@ -80,8 +90,17 @@ export interface SenalesIncidenciasCliente {
   certificadoVenceHoy: boolean;
 }
 
+// corteHistorico (YYYY-MM-DD, ver operativo.fecha_corte_historico): una
+// incidencia pendiente con fecha_creacion anterior a este corte ya no
+// alimenta ninguna senal operativa (Dashboard/Alertas activas/Tareas) — solo
+// sigue visible en la ficha del cliente (IncidenciasTab, que trae todas sin
+// este filtro). No se borra ni se marca resuelta, simplemente deja de
+// generar trabajo diario. Comparacion por string funciona porque
+// fecha_creacion viene "YYYY-MM-DDTHH:mm:ss" (ver parseFechaCreacion) y el
+// corte tambien es YYYY-MM-DD — el prefijo ordena igual que la fecha real.
 export function indexarSenalesIncidenciasPorCliente(
-  rows: RawIncidenciaItem[]
+  rows: RawIncidenciaItem[],
+  corteHistorico: string
 ): Map<string, SenalesIncidenciasCliente> {
   const map = new Map<string, SenalesIncidenciasCliente>();
   function marcar(numeroDocumento: string, campo: keyof SenalesIncidenciasCliente) {
@@ -96,6 +115,7 @@ export function indexarSenalesIncidenciasPorCliente(
     const numeroDocumento = row.numerodocumento_cliente?.trim();
     if (!numeroDocumento) continue;
     if (row.condicion === "C") continue; // solo interesan las que siguen abiertas
+    if (!row.fecha_creacion || row.fecha_creacion < corteHistorico) continue;
     const tipo = (row.ntipoincidencia ?? "").trim().toUpperCase();
     if (tipo === TIPO_ALTA) marcar(numeroDocumento, "altaPendiente");
     else if (tipo === TIPO_CERT_VENCE_HOY) marcar(numeroDocumento, "certificadoVenceHoy");

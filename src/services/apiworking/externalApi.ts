@@ -196,6 +196,93 @@ export async function fetchIncidencias(token: string, query: IncidenciasQuery): 
   );
 }
 
+// Catalogo de tipos de incidencia — confirmado via prueba controlada
+// (Fase 2 Postventa, Decision bloqueante "contrato de incidencias"). Solo
+// trae tipos con estado "A" (activo); probamos con displayLength alto y el
+// resultado no cambia — no es un problema de paginacion, la lista de
+// negocio (mas amplia, incluye tipos de otros origenes como "Seguimiento de
+// Venta") simplemente no la expone completa este endpoint. Se usa tal cual
+// para el selector de creacion: solo se ofrecen tipos activos, que es el
+// comportamiento correcto de todos modos.
+export async function fetchTipoIncidencias(token: string): Promise<unknown> {
+  return getConFallback("/Administrativo/tipo-incidencias", {}, token, "tipo-incidencias");
+}
+
+export interface CrearIncidenciaInput {
+  idOrdenServicio: string;
+  titulo: string;
+  descripcion: string;
+  tipo: number;
+  asignado: number;
+  asigna: number;
+  telefonoCliente: string;
+  usuario: string;
+}
+
+export interface CrearIncidenciaResponse {
+  codResponse?: string;
+  message?: string;
+  data?: { result?: number; duplicado?: number; numero?: string; error?: string | null } | null;
+}
+
+// A diferencia de las lecturas (getConFallback), esta escritura NUNCA
+// reintenta con FALLBACK_API_TOKEN — auditoria de seguridad: una escritura
+// debe quedar atribuida a la sesion real que la pidio, nunca "colarse" con
+// la cuenta de servicio compartida solo porque el usuario no tenia permiso.
+// Si el token de sesion no tiene permiso o expiro, el error sube tal cual
+// al controller, que lo devuelve como error claro (ver
+// incidencias.controller.ts) en vez de completar la escritura por otro lado.
+// idOrdenServicio y usuario van como STRING, tipo/asignado/asigna como
+// NUMERO — confirmado en la prueba controlada real (un payload con
+// idOrdenServicio numerico devolvia 400 "The JSON value could not be
+// converted to System.String").
+export async function crearIncidencia(
+  token: string,
+  input: CrearIncidenciaInput
+): Promise<CrearIncidenciaResponse> {
+  const { data } = await externalApi.post<CrearIncidenciaResponse>(
+    "/Administrativo/incidencia",
+    input,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+export interface CrearSeguimientoInput {
+  idOrdenServicio: string;
+  // No hay catalogo confirmado de valores de "estado" (no hay endpoint que lo
+  // liste, ni enum en el swagger de APIWorking) — y enviar null es rechazado
+  // por APIWorking con HTTP 400 "One or more validation errors occurred"
+  // pese a que su swagger marca el campo como nullable (confirmado en prueba
+  // controlada real). Por eso el controller relee el id_estado del evento
+  // mas reciente en el historial de la propia orden y lo reenvia tal cual:
+  // nunca se inventa ni se cambia el estado, solo se re-declara el que la
+  // orden ya tiene.
+  estado: string;
+  idPersona: string;
+  observacion: string;
+}
+
+export interface CrearSeguimientoResponse {
+  codResponse?: string;
+  message?: string;
+  data?: unknown;
+}
+
+// Misma politica que crearIncidencia: nunca reintenta con FALLBACK_API_TOKEN
+// — una escritura queda atribuida a la sesion real que la pidio.
+export async function crearSeguimiento(
+  token: string,
+  input: CrearSeguimientoInput
+): Promise<CrearSeguimientoResponse> {
+  const { data } = await externalApi.post<CrearSeguimientoResponse>(
+    "/Administrativo/seguimiento",
+    input,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
 export async function fetchPostVenta(token: string, query: PostVentaQuery): Promise<unknown> {
   return getConFallback(
     "/Administrativo/post-venta",

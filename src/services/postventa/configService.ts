@@ -25,6 +25,10 @@ const DEFAULTS: PostVentaConfigValues = {
   "seguimiento.dias_etapa2": 15,
   "seguimiento.dias_etapa3": 30,
   "seguimiento.fecha_corte_clientes_nuevos": "2026-07-04",
+  "operativo.fecha_corte_historico": "2026-09-01",
+  "dataset.estados_no_vigentes": "CLIENTE DE BAJA,SUSPENDIDO POR PAGO",
+  "recuperacion.dias_gracia_renovacion": 4,
+  "recuperacion.dias_permanencia": 30,
 };
 
 const NUMERIC_KEYS: (keyof PostVentaConfigValues)[] = [
@@ -45,6 +49,8 @@ const NUMERIC_KEYS: (keyof PostVentaConfigValues)[] = [
   "actividad.dias_sin_uso_alerta",
   "seguimiento.dias_etapa2",
   "seguimiento.dias_etapa3",
+  "recuperacion.dias_gracia_renovacion",
+  "recuperacion.dias_permanencia",
 ];
 
 const CACHE_KEY = "config";

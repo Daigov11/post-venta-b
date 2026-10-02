@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { evaluateAlertas } from "../engines/alertas.engine.js";
+import { evaluateAlertas, filtrarClientesDesdeCorteHistorico } from "../engines/alertas.engine.js";
 import { evaluateOportunidades } from "../engines/oportunidades.engine.js";
 import { getConfig } from "../services/postventa/configService.js";
 import { getPostVentaDataset } from "../services/postventa/postventaCache.js";
@@ -74,7 +74,20 @@ interface KpisPanel {
 // Google" ni "Pago QR" en ningun lado del dataset (buscado en todo el repo),
 // por eso no se calculan aca: el frontend los muestra como "Fuente pendiente
 // de validacion" en vez de inventar un valor.
-function calcularKpisPanel(clientes: PostVentaCliente[], ahora: Date): KpisPanel {
+//
+// renovacionesProximas SI respeta el corte historico (documentosVigentes):
+// es el mismo concepto que la alerta RENOVACION_PROXIMA (mismo campo
+// renovacionEnAlerta), asi que si esa alerta ya no cuenta a un cliente
+// anterior al corte, este contador del Panel tampoco deberia — evita mostrar
+// una cifra global aca y una lista mas chica en Alertas (pedido explicito).
+// El resto de KPIs de esta funcion (deuda, cobranza, Loyalty) NO se filtran:
+// son metricas financieras/operativas reales, no alertas, y el alcance
+// pedido fue especificamente sobre alertas.
+function calcularKpisPanel(
+  clientes: PostVentaCliente[],
+  ahora: Date,
+  documentosVigentes: Set<string>
+): KpisPanel {
   let totalEsperadoMes = 0;
   let estimadoRecaudarHoy = 0;
   let totalCobradoMes = 0;
@@ -88,7 +101,7 @@ function calcularKpisPanel(clientes: PostVentaCliente[], ahora: Date): KpisPanel
   for (const cliente of clientes) {
     if (cliente.sistemas.apiLoyalty) clientesLoyalty += 1;
 
-    if (cliente.renovacionEnAlerta) {
+    if (cliente.renovacionEnAlerta && documentosVigentes.has(cliente.numeroDocumentoCliente)) {
       renovacionesProximasCount += 1;
       renovacionesProximasMonto += cliente.ingresoMensualReal ?? 0;
     }
@@ -190,14 +203,22 @@ export async function getKpis(_req: Request, res: Response) {
     return ubicacion && "departamento" in ubicacion ? ubicacion.departamento : null;
   });
 
-  const alertas = evaluateAlertas(clientes, config, dataset.generatedAt);
+  // Corte historico: mismo universo de clientes/sistemas que GET /api/alertas
+  // (ver filtrarClientesDesdeCorteHistorico) — evita mostrar aca una cifra
+  // global historica que no coincida con la lista filtrada de Alertas. El
+  // Set de documentos vigentes tambien se reusa en calcularKpisPanel para
+  // que "Renovaciones proximas" (mismo campo renovacionEnAlerta que la
+  // alerta RENOVACION_PROXIMA) respete la misma regla.
+  const clientesVigentesAlertas = filtrarClientesDesdeCorteHistorico(clientes, config);
+  const documentosVigentes = new Set(clientesVigentesAlertas.map((c) => c.numeroDocumentoCliente));
+  const alertas = evaluateAlertas(clientesVigentesAlertas, config, dataset.generatedAt);
   const alertasPorNivel = { INFO: 0, WARNING: 0, CRITICAL: 0 };
   for (const alerta of alertas) alertasPorNivel[alerta.nivel] += 1;
 
   const oportunidades = evaluateOportunidades(clientes, config, dataset.generatedAt);
   const oportunidadesPorTipo = countBy(oportunidades, (o) => o.tipo);
 
-  const kpisPanel = calcularKpisPanel(clientes, new Date());
+  const kpisPanel = calcularKpisPanel(clientes, new Date(), documentosVigentes);
 
   res.status(200).json({
     generatedAt: dataset.generatedAt,

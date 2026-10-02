@@ -1,20 +1,23 @@
 import type { Request, Response } from "express";
 import { evaluateAlertas } from "../engines/alertas.engine.js";
-import { evaluateOportunidades } from "../engines/oportunidades.engine.js";
+import { aplicarEstadosGuardados, evaluateOportunidades } from "../engines/oportunidades.engine.js";
 import { construirAlertasReuniones } from "./alertas.controller.js";
 import type { ClientesFilter, ClientesSortField, Granularidad } from "../query/clientesQuery.js";
 import { queryClientes } from "../query/clientesQuery.js";
+import * as alertasEstadoRepository from "../repositories/alertasEstado.repository.js";
 import * as clienteInteresesRepository from "../repositories/clienteIntereses.repository.js";
 import * as clienteMetadataRepository from "../repositories/clienteMetadata.repository.js";
 import * as interesesCatalogoRepository from "../repositories/interesesCatalogo.repository.js";
 import * as notasRepository from "../repositories/notas.repository.js";
+import * as oportunidadesEstadoRepository from "../repositories/oportunidadesEstado.repository.js";
+import * as recuperacionEpisodioRepository from "../repositories/recuperacionEpisodio.repository.js";
 import * as reunionesRepository from "../repositories/reuniones.repository.js";
 import * as seguimientoRepository from "../repositories/seguimientoPostVenta.repository.js";
 import * as tareasRepository from "../repositories/tareas.repository.js";
 import { getConfig } from "../services/postventa/configService.js";
 import { getClientesExcluidos, getPostVentaDataset } from "../services/postventa/postventaCache.js";
 import { construirResumen } from "../services/postventa/seguimientoPostVenta.js";
-import type { EstadoPostVenta, Periodicidad, SeguimientoResumen } from "../types/postventa.js";
+import type { EstadoAlerta, EstadoPostVenta, Periodicidad, SeguimientoResumen } from "../types/postventa.js";
 
 const EXPORT_MAX_ROWS = 5000;
 const SORT_FIELDS: ClientesSortField[] = [
@@ -93,8 +96,26 @@ export async function listClientes(req: Request, res: Response) {
     : undefined;
   const sortDir = req.query.sortDir === "desc" ? "desc" : "asc";
 
+  // Por defecto, Cartera solo muestra clientes cuya ordenVigente esta
+  // realmente activa — un cliente cuya UNICA orden esta suspendida/de baja
+  // (pickOrdenVigente no tiene otra opcion mas activa para elegir) queda
+  // fuera salvo que se pida explicitamente incluirNoActivas=true. Ver
+  // modulo Recuperacion — esas ordenes siguen siendo trackeables ahi.
+  const incluirNoActivas = req.query.incluirNoActivas === "true";
+  let clientesBase = dataset.clientes;
+  if (!incluirNoActivas) {
+    const config = await getConfig();
+    const estadosNoVigentes = config["dataset.estados_no_vigentes"]
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    clientesBase = clientesBase.filter(
+      (c) => !estadosNoVigentes.includes(c.ordenVigente.nEstadoApiWorking.trim().toUpperCase())
+    );
+  }
+
   const isExport = req.query.export === "true";
-  const result = queryClientes(dataset.clientes, {
+  const result = queryClientes(clientesBase, {
     filter,
     sortBy,
     sortDir,
@@ -102,7 +123,18 @@ export async function listClientes(req: Request, res: Response) {
     pageSize: isExport ? EXPORT_MAX_ROWS : parseNumber(req.query.pageSize),
   });
 
-  res.status(200).json(result);
+  // Badge "N sistema(s) en recuperacion" — solo se calcula para la pagina
+  // actual (10-25 filas), nunca para todo el dataset. Resta la propia
+  // ordenVigente del conteo para no duplicar lo que la fila ya muestra.
+  const numerosPagina = result.data.map((c) => c.numeroDocumentoCliente);
+  const ordenesAbiertasMap = await recuperacionEpisodioRepository.listOrdenesAbiertasByClientes(numerosPagina);
+  const dataConRecuperacion = result.data.map((cliente) => {
+    const ordenes = ordenesAbiertasMap.get(cliente.numeroDocumentoCliente) ?? [];
+    const otras = ordenes.filter((id) => id !== cliente.ordenVigente.idOrdenServicio);
+    return { ...cliente, recuperacionAbiertaCount: otras.length };
+  });
+
+  res.status(200).json({ ...result, data: dataConRecuperacion, generatedAt: dataset.generatedAt });
 }
 
 export async function getFichaCliente(req: Request, res: Response) {
@@ -132,11 +164,27 @@ export async function getFichaCliente(req: Request, res: Response) {
     reunionesRepository.listByCliente(numeroDocumentoCliente),
   ]);
   const alertasReuniones = await construirAlertasReuniones([cliente], dataset.generatedAt);
-  const alertas = [
+  let alertas = [
     ...evaluateAlertas([cliente], config, dataset.generatedAt),
     ...alertasReuniones.filter((a) => a.cliente === numeroDocumentoCliente),
   ];
-  const oportunidades = evaluateOportunidades([cliente], config, dataset.generatedAt);
+  // Mismo merge de estado manual (VISTA/RESUELTA) que /api/alertas — sin esto,
+  // la ficha seguia mostrando una alerta ya resuelta como si siguiera activa.
+  const alertasEstados = await alertasEstadoRepository.listByIds(alertas.map((a) => a.id));
+  alertas = alertas
+    .map((a) => {
+      const override = alertasEstados.get(a.id);
+      return override ? { ...a, estado: override.estado as EstadoAlerta } : a;
+    })
+    .filter((a) => a.estado !== "RESUELTA");
+  let oportunidades = evaluateOportunidades([cliente], config, dataset.generatedAt);
+  // Mismo merge de gestion manual que /api/oportunidades (ver
+  // oportunidades.controller.ts) — sin esto, la ficha mostraba siempre
+  // ABIERTA aunque ya se hubiera gestionado desde la pantalla de Oportunidades.
+  const oportunidadesEstados = await oportunidadesEstadoRepository.listByIds(
+    oportunidades.map((o) => o.id)
+  );
+  oportunidades = aplicarEstadosGuardados(oportunidades, oportunidadesEstados);
 
   // Resumen liviano (no el detalle completo, eso lo trae el drawer al abrirse
   // — evita pedirle el historial de incidencias a APIWorking en cada carga

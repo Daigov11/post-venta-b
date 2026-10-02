@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { refresh } from "../controllers/postventa.controller.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRol } from "../middleware/auth.js";
 
 export const postventaRouter = Router();
 
-postventaRouter.post("/refresh", requireAuth, asyncHandler(refresh));
+postventaRouter.use(requireAuth);
+postventaRouter.use(requireRol("ADMIN", "ADMINISTRATIVO"));
+
+postventaRouter.post("/refresh", asyncHandler(refresh));

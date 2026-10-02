@@ -7,12 +7,17 @@ import {
 import { getClienteIntereses, setClienteIntereses } from "../controllers/intereses.controller.js";
 import { refreshAll, refreshOne } from "../controllers/systemUsers.controller.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRol } from "../middleware/auth.js";
 
 export const clientesRouter = Router();
 
 clientesRouter.get("/", requireAuth, asyncHandler(listClientes));
-clientesRouter.post("/system-users/refresh", requireAuth, asyncHandler(refreshAll));
+clientesRouter.post(
+  "/system-users/refresh",
+  requireAuth,
+  requireRol("ADMIN", "ADMINISTRATIVO"),
+  asyncHandler(refreshAll)
+);
 clientesRouter.get("/:numeroDocumentoCliente", requireAuth, asyncHandler(getFichaCliente));
 clientesRouter.patch(
   "/:numeroDocumentoCliente/metadata",

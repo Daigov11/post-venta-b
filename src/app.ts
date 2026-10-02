@@ -25,6 +25,11 @@ import { incidenciasManualesRouter } from "./routes/incidenciasManuales.routes.j
 import { contactosRouter } from "./routes/contactos.routes.js";
 import { clientesBajaRouter } from "./routes/clientesBaja.routes.js";
 import { seguimientoPostVentaRouter } from "./routes/seguimientoPostVenta.routes.js";
+import { resultadoDiaRouter } from "./routes/resultadoDia.routes.js";
+import { eventoOperativoRouter } from "./routes/eventoOperativo.routes.js";
+import { bolsaRouter } from "./routes/bolsa.routes.js";
+import { usuariosAutorizadosRouter } from "./routes/usuariosAutorizados.routes.js";
+import { recuperacionRouter } from "./routes/recuperacion.routes.js";
 
 export const app = express();
 
@@ -55,6 +60,7 @@ app.use("/api/alertas", alertasRouter);
 app.use("/api/oportunidades", oportunidadesRouter);
 app.use("/api/saved-views", savedViewsRouter);
 app.use("/api/config", configRouter);
+app.use("/api/usuarios-autorizados", usuariosAutorizadosRouter);
 app.use("/api/intereses", interesesRouter);
 app.use("/api/reuniones", reunionesRouter);
 app.use("/api/historial-seguimiento", historialRouter);
@@ -63,5 +69,9 @@ app.use("/api/incidencias-manuales", incidenciasManualesRouter);
 app.use("/api/contactos", contactosRouter);
 app.use("/api/clientes-baja", clientesBajaRouter);
 app.use("/api/seguimiento-postventa", seguimientoPostVentaRouter);
+app.use("/api/resultados", resultadoDiaRouter);
+app.use("/api/eventos-operativos", eventoOperativoRouter);
+app.use("/api/bolsa", bolsaRouter);
+app.use("/api/recuperacion", recuperacionRouter);
 
 app.use(errorHandler);

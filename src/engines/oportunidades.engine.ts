@@ -1,4 +1,9 @@
-import type { Oportunidad, PostVentaCliente, PostVentaConfigValues } from "../types/postventa.js";
+import type {
+  Oportunidad,
+  OportunidadEstado,
+  PostVentaCliente,
+  PostVentaConfigValues,
+} from "../types/postventa.js";
 
 export interface OportunidadRule {
   id: string;
@@ -99,8 +104,35 @@ export function evaluateOportunidades(
         valorEstimado: result.valorEstimado,
         fecha: generatedAt,
         origen: rule.id,
+        // Default sin gestionar — el controller lo sobreescribe si existe un
+        // override guardado en postventa_oportunidades_estado.
+        estado: "ABIERTA",
+        responsable: null,
+        siguienteAccion: null,
+        resultado: null,
       });
     }
   }
   return oportunidades;
+}
+
+// Aplica la gestion manual guardada (postventa_oportunidades_estado) sobre
+// oportunidades recien calculadas — usado tanto por GET /api/oportunidades
+// como por la ficha de cliente (GET /api/clientes/:id), para no repetir esta
+// logica de merge en cada lugar que llama a evaluateOportunidades.
+export function aplicarEstadosGuardados(
+  oportunidades: Oportunidad[],
+  estados: Map<string, OportunidadEstado>
+): Oportunidad[] {
+  return oportunidades.map((o) => {
+    const override = estados.get(o.id);
+    if (!override) return o;
+    return {
+      ...o,
+      estado: override.estado,
+      responsable: override.responsable,
+      siguienteAccion: override.siguienteAccion,
+      resultado: override.resultado,
+    };
+  });
 }

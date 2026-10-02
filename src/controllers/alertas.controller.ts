@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
-import { evaluateAlertas } from "../engines/alertas.engine.js";
+import { evaluateAlertas, filtrarClientesDesdeCorteHistorico } from "../engines/alertas.engine.js";
 import * as alertasEstadoRepository from "../repositories/alertasEstado.repository.js";
+import * as eventoOperativoRepository from "../repositories/eventoOperativo.repository.js";
 import * as reunionesRepository from "../repositories/reuniones.repository.js";
 import { getConfig } from "../services/postventa/configService.js";
 import { getPostVentaDataset } from "../services/postventa/postventaCache.js";
@@ -43,6 +44,7 @@ export async function construirAlertasReuniones(
       clientePorDocumento.get(r.numeroDocumentoCliente)?.nombreCliente ?? r.numeroDocumentoCliente,
     sistemas: clientePorDocumento.get(r.numeroDocumentoCliente)?.sistemas ?? sistemasVacio,
     idOrdenServicio: r.idOrdenServicio,
+    telefonoEfectivo: clientePorDocumento.get(r.numeroDocumentoCliente)?.telefonoEfectivo ?? null,
     fecha: generatedAt,
     origen: "reunion-proxima",
     estado: "ABIERTA" as const,
@@ -53,7 +55,12 @@ export async function listAlertas(req: Request, res: Response) {
   const dataset = await getPostVentaDataset();
   const config = await getConfig();
   const alertasReuniones = await construirAlertasReuniones(dataset.clientes, dataset.generatedAt);
-  let alertas = [...evaluateAlertas(dataset.clientes, config, dataset.generatedAt), ...alertasReuniones];
+  // Corte historico: solo clientes/sistemas de septiembre en adelante generan
+  // alertas en esta lista global (ver filtrarClientesDesdeCorteHistorico).
+  // Las reuniones no se filtran: son un compromiso agendado a mano, no una
+  // senal historica que se vaya acumulando sola.
+  const clientesVigentes = filtrarClientesDesdeCorteHistorico(dataset.clientes, config);
+  let alertas = [...evaluateAlertas(clientesVigentes, config, dataset.generatedAt), ...alertasReuniones];
 
   // Las alertas no se guardan — se recalculan en cada request. Lo unico
   // persistido es la marca manual (VISTA/RESUELTA) en postventa_alertas_estado,
@@ -95,13 +102,33 @@ export async function marcarEstadoAlerta(req: Request, res: Response) {
   if (!numeroDocumentoCliente) {
     return res.status(400).json({ message: "numeroDocumentoCliente es requerido" });
   }
+  // "Marcar resuelta solo con confirmacion y motivo" — el motivo es
+  // obligatorio unicamente al resolver, no al marcar vista (esa es una marca
+  // liviana de "alguien la esta revisando", no un cierre de caso).
+  const notaTexto = nota ? String(nota).trim() : "";
+  if (estado === "RESUELTA" && !notaTexto) {
+    return res.status(400).json({ message: "El motivo es obligatorio para marcar una alerta como resuelta" });
+  }
   const updated = await alertasEstadoRepository.upsert({
     alertaId: id,
     numeroDocumentoCliente: String(numeroDocumentoCliente),
     estado,
-    nota: nota ? String(nota) : null,
+    nota: notaTexto || null,
     usuario: req.usuario as string,
   });
+
+  if (estado === "RESUELTA") {
+    await eventoOperativoRepository.registrarSeguro({
+      usuario: req.usuario as string,
+      tipoAccion: "ALERTA_RESUELTA",
+      modulo: "ALERTAS",
+      numeroDocumentoCliente: String(numeroDocumentoCliente),
+      entidadTipo: "ALERTA",
+      entidadId: id,
+      detalle: notaTexto,
+    });
+  }
+
   res.status(200).json(updated);
 }
 

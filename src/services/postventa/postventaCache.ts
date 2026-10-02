@@ -1,8 +1,8 @@
-import { evaluateAlertas } from "../../engines/alertas.engine.js";
+import { evaluateAlertas, filtrarClientesDesdeCorteHistorico } from "../../engines/alertas.engine.js";
 import { indexarCapacitacionesPorCliente } from "../../mappers/capacitaciones.mapper.js";
 import { groupOrdenesByCliente } from "../../mappers/cliente.aggregator.js";
 import { enrichCliente } from "../../mappers/enrichment/enrichCliente.js";
-import { indexarSenalesIncidenciasPorCliente } from "../../mappers/incidencias.mapper.js";
+import { indexarSenalesIncidenciasPorCliente, mapIncidenciaItem } from "../../mappers/incidencias.mapper.js";
 import type { SenalesIncidenciasCliente } from "../../mappers/incidencias.mapper.js";
 import { mapOrdenServicioToOsRef } from "../../mappers/ordenServicio.mapper.js";
 import { indexarPostVentaPorOrdenServicio } from "../../mappers/postVenta.mapper.js";
@@ -12,7 +12,7 @@ import * as notasRepository from "../../repositories/notas.repository.js";
 import * as snapshotsRepository from "../../repositories/snapshotsDiarios.repository.js";
 import * as systemUsersCacheRepository from "../../repositories/systemUsersCache.repository.js";
 import * as tareasRepository from "../../repositories/tareas.repository.js";
-import type { Capacitacion, ClienteBase, PostVentaCliente, PostVentaDataset } from "../../types/postventa.js";
+import type { Capacitacion, ClienteBase, Incidencia, PostVentaCliente, PostVentaDataset } from "../../types/postventa.js";
 import { fetchAllCapacitaciones } from "../apiworking/capacitacionesSync.js";
 import { fetchAllIncidencias } from "../apiworking/incidenciasSync.js";
 import { fetchAllOrdenesServicio } from "../apiworking/ordenesSync.js";
@@ -39,6 +39,13 @@ interface RawState {
   generatedAt: string;
   senalesIncidenciasMap: Map<string, SenalesIncidenciasCliente>;
   capacitacionesMap: Map<string, Capacitacion[]>;
+  // Indexado por idIncidencia — permite resolver "esta incidencia sigue
+  // abierta?" para las tareas con origen=INCIDENCIA en O(1), sin ninguna
+  // llamada adicional a APIWorking (las ~36k incidencias ya se trajeron
+  // completas para el sync diario, ver fetchAllIncidencias). Nunca se debe
+  // usar esto para pedir una incidencia puntual en vivo — es una foto de la
+  // ultima vez que corrio el sync, no tiempo real.
+  incidenciasPorId: Map<number, Incidencia>;
 }
 
 let rawState: RawState | null = null;
@@ -86,14 +93,31 @@ async function fetchRawState(): Promise<RawState> {
     mapOrdenServicioToOsRef(raw, postVentaIndex.get(raw.idOrdenServicio) ?? null)
   );
   const estadosExcluidos = parseEstadosExcluidos(config["dataset.estados_excluidos"]);
-  const clienteBases = groupOrdenesByCliente(osRefs, estadosExcluidos);
-  const senalesIncidenciasMap = indexarSenalesIncidenciasPorCliente(incidenciaRows);
+  // Lista mas amplia que estadosExcluidos (que solo saca clientes del dataset
+  // por completo) — se usa aca ademas para que pickOrdenVigente() no elija
+  // una orden suspendida por sobre una orden realmente activa del mismo
+  // cliente al desempatar por fecha. Ver migracion 0044 / modulo Recuperacion.
+  const estadosNoVigentes = parseEstadosExcluidos(config["dataset.estados_no_vigentes"]);
+  const clienteBases = groupOrdenesByCliente(
+    osRefs,
+    [...new Set([...estadosExcluidos, ...estadosNoVigentes])]
+  );
+  const senalesIncidenciasMap = indexarSenalesIncidenciasPorCliente(
+    incidenciaRows,
+    config["operativo.fecha_corte_historico"]
+  );
   const capacitacionesMap = indexarCapacitacionesPorCliente(capacitacionRows);
+  const incidenciasPorId = new Map<number, Incidencia>();
+  for (const raw of incidenciaRows) {
+    const incidencia = mapIncidenciaItem(raw);
+    if (incidencia.idIncidencia) incidenciasPorId.set(incidencia.idIncidencia, incidencia);
+  }
 
   return {
     clienteBases,
     generatedAt: new Date().toISOString(),
     senalesIncidenciasMap,
+    incidenciasPorId,
     capacitacionesMap,
   };
 }
@@ -162,7 +186,14 @@ export async function getPostVentaDataset(): Promise<PostVentaDataset> {
   // Backfill del resumen de alertas por cliente (metadata.alertasCount) usando
   // el mismo motor que expone GET /api/alertas — evita duplicar la logica de
   // reglas, y es una operacion en memoria, no una llamada de red adicional.
-  const alertas = evaluateAlertas(clientes, config, rawGeneratedAt);
+  // Corte historico aplicado aca tambien: metadata.alertasCount alimenta la
+  // columna "Alertas" de Cartera y la priorizacion de Tareas/Renovaciones,
+  // ambas superficies globales — un cliente/sistema anterior al corte queda
+  // en 0/0/0 (su alta.metadata.alertasCount por defecto, ver enrichCliente),
+  // sin afectar el calculo independiente que usa la ficha del cliente
+  // (getFichaCliente en clientes.controller.ts no pasa por aca).
+  const clientesVigentesParaAlertas = filtrarClientesDesdeCorteHistorico(clientes, config);
+  const alertas = evaluateAlertas(clientesVigentesParaAlertas, config, rawGeneratedAt);
   const alertasPorCliente = new Map<string, { INFO: number; WARNING: number; CRITICAL: number }>();
   for (const alerta of alertas) {
     const counts = alertasPorCliente.get(alerta.cliente) ?? { INFO: 0, WARNING: 0, CRITICAL: 0 };
@@ -242,6 +273,33 @@ export async function getCapacitacionesPorCliente(
     await refreshRawDataset();
   }
   return rawState!.capacitacionesMap.get(numeroDocumentoCliente) ?? [];
+}
+
+// Estado de UNA incidencia puntual, leido del snapshot ya cargado en
+// memoria por el sync diario — nunca hace una llamada nueva a APIWorking
+// (evita N+1 al resolver la prioridad de tareas con origen=INCIDENCIA, ver
+// tareas.controller.ts). null = no se pudo determinar (id no encontrado en
+// el snapshot, por ejemplo si es muy reciente y el sync todavia no corrio) —
+// el llamador nunca debe interpretar null como "resuelta".
+export async function getEstadoIncidencia(idIncidencia: number): Promise<Incidencia | null> {
+  if (!rawState) {
+    await refreshRawDataset();
+  }
+  return rawState!.incidenciasPorId.get(idIncidencia) ?? null;
+}
+
+// Version en lote de getEstadoIncidencia — un solo Map.get() por id, cero
+// llamadas a APIWorking sin importar cuantos ids se pidan.
+export async function getEstadoIncidencias(ids: number[]): Promise<Map<number, Incidencia>> {
+  if (!rawState) {
+    await refreshRawDataset();
+  }
+  const resultado = new Map<number, Incidencia>();
+  for (const id of ids) {
+    const incidencia = rawState!.incidenciasPorId.get(id);
+    if (incidencia) resultado.set(id, incidencia);
+  }
+  return resultado;
 }
 
 // Sync completo: trae todo de nuevo de APIWorking, re-enriquece, y guarda la
