@@ -7,6 +7,8 @@ export interface UsuarioAutorizado {
   nombreVisible: string;
   rol: RolUsuario;
   activo: boolean;
+  // Recibe tareas del reparto diario de contactos (cualquier rol; ver 0047).
+  recibeReparto: boolean;
   ultimoAccesoEn: string | null;
   creadoEn: string;
   actualizadoEn: string;

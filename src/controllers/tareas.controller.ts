@@ -6,6 +6,7 @@ import { getEstadoIncidencias } from "../services/postventa/postventaCache.js";
 import { listTareasRenovacion } from "../services/postventa/renovacionContacto.js";
 import {
   listCarteraMensual,
+  reconstruirRepartoDelPeriodo,
   redistribuirPendientesDelPeriodo,
 } from "../services/postventa/repartoMensualContacto.js";
 import type { EstadoTarea, OrigenTarea, PrioridadTarea, Tarea, TipoTarea } from "../types/postventa.js";
@@ -15,9 +16,21 @@ export async function listRenovacion(_req: Request, res: Response) {
   res.status(200).json({ data, total: data.length });
 }
 
-export async function listCartera(_req: Request, res: Response) {
-  const { resumen, data } = await listCarteraMensual();
+// ?alcance=mias limita a las tareas del propio usuario. Un no-admin siempre
+// ve solo las suyas, aunque pida otra cosa: el filtro real vive aca, no en
+// el frontend.
+export async function listCartera(req: Request, res: Response) {
+  const { resumen, data } = await listCarteraMensual({
+    usuario: req.usuario as string,
+    esAdmin: req.rolUsuario === "ADMIN",
+    soloMias: req.query.alcance === "mias",
+  });
   res.status(200).json({ resumen, data, total: data.length });
+}
+
+export async function reconstruirCartera(req: Request, res: Response) {
+  const resultado = await reconstruirRepartoDelPeriodo(req.usuario as string);
+  res.status(200).json(resultado);
 }
 
 export async function redistribuirCartera(req: Request, res: Response) {

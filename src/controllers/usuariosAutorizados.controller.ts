@@ -47,7 +47,7 @@ export async function updateUsuarioAutorizado(req: Request, res: Response) {
     return res.status(404).json({ message: "Usuario autorizado no encontrado" });
   }
 
-  const { nombreVisible, rol, activo, idUsuarioApiworking } = req.body ?? {};
+  const { nombreVisible, rol, activo, recibeReparto, idUsuarioApiworking } = req.body ?? {};
   if (rol !== undefined && !ROLES_VALIDOS.includes(rol)) {
     return res.status(400).json({ message: "rol invalido" });
   }
@@ -71,6 +71,7 @@ export async function updateUsuarioAutorizado(req: Request, res: Response) {
     nombreVisible: nombreVisible !== undefined ? String(nombreVisible) : undefined,
     rol: rol !== undefined ? rol : undefined,
     activo: activo !== undefined ? Boolean(activo) : undefined,
+    recibeReparto: recibeReparto !== undefined ? Boolean(recibeReparto) : undefined,
     idUsuarioApiworking:
       idUsuarioApiworking !== undefined ? String(idUsuarioApiworking) : undefined,
     actualizadoPor: req.usuario as string,

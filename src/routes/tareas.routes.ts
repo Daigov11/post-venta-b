@@ -8,11 +8,12 @@ import {
   listRenovacion,
   listSeguimientos,
   listTareas,
+  reconstruirCartera,
   redistribuirCartera,
   updateTarea,
 } from "../controllers/tareas.controller.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRol } from "../middleware/auth.js";
 
 export const tareasRouter = Router();
 
@@ -22,6 +23,13 @@ tareasRouter.post("/", requireAuth, asyncHandler(createTarea));
 tareasRouter.get("/renovacion", requireAuth, asyncHandler(listRenovacion));
 tareasRouter.get("/reparto-mensual", requireAuth, asyncHandler(listCartera));
 tareasRouter.post("/reparto-mensual/redistribuir", requireAuth, asyncHandler(redistribuirCartera));
+// Cambia fechas y responsables de muchas tareas a la vez: solo ADMIN.
+tareasRouter.post(
+  "/reparto-mensual/reconstruir",
+  requireAuth,
+  requireRol("ADMIN"),
+  asyncHandler(reconstruirCartera)
+);
 tareasRouter.get("/:id", requireAuth, asyncHandler(getTarea));
 tareasRouter.patch("/:id", requireAuth, asyncHandler(updateTarea));
 tareasRouter.delete("/:id", requireAuth, asyncHandler(deleteTarea));

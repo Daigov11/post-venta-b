@@ -9,6 +9,7 @@ interface UsuarioAutorizadoRow extends RowDataPacket {
   nombre_visible: string;
   rol: RolUsuario;
   activo: number;
+  recibe_reparto: number;
   ultimo_acceso_en: Date | null;
   creado_en: Date;
   actualizado_en: Date;
@@ -24,6 +25,7 @@ function toDomain(row: UsuarioAutorizadoRow): UsuarioAutorizado {
     nombreVisible: row.nombre_visible,
     rol: row.rol,
     activo: !!row.activo,
+    recibeReparto: !!row.recibe_reparto,
     ultimoAccesoEn: row.ultimo_acceso_en ? row.ultimo_acceso_en.toISOString() : null,
     creadoEn: row.creado_en.toISOString(),
     actualizadoEn: row.actualizado_en.toISOString(),
@@ -87,6 +89,7 @@ export async function update(
     nombreVisible?: string;
     rol?: RolUsuario;
     activo?: boolean;
+    recibeReparto?: boolean;
     idUsuarioApiworking?: string | null;
     actualizadoPor: string;
   }
@@ -105,6 +108,10 @@ export async function update(
     campos.push("activo = ?");
     valores.push(patch.activo ? 1 : 0);
   }
+  if (patch.recibeReparto !== undefined) {
+    campos.push("recibe_reparto = ?");
+    valores.push(patch.recibeReparto ? 1 : 0);
+  }
   if (patch.idUsuarioApiworking !== undefined) {
     campos.push("id_usuario_apiworking = ?");
     valores.push(patch.idUsuarioApiworking);
@@ -117,6 +124,17 @@ export async function update(
     [...valores, id]
   );
   return findById(id);
+}
+
+// Usuarios activos que reciben el reparto diario, en orden estable (por
+// usuario_externo, sin distinguir mayusculas) para que el reparto sea
+// determinista. El valor devuelto es usuario_externo, que es lo que se guarda
+// en postventa_tareas.responsable.
+export async function listReceptoresReparto(): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT usuario_externo FROM postventa_usuarios_autorizados WHERE activo = 1 AND recibe_reparto = 1 ORDER BY LOWER(usuario_externo)"
+  );
+  return rows.map((r) => r.usuario_externo as string);
 }
 
 // Salvaguarda de "ultimo admin activo": cuenta ADMIN activos, opcionalmente

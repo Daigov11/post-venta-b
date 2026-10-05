@@ -1,5 +1,7 @@
 import * as tareasRepository from "../../repositories/tareas.repository.js";
+import * as usuarioAutorizadoRepository from "../../repositories/usuarioAutorizado.repository.js";
 import type { PostVentaCliente, TareaRenovacion } from "../../types/postventa.js";
+import { asignarResponsablesPorFecha, esClienteActivoParaContacto, hoyLocalIso } from "./contactoProgramado.js";
 import { getPostVentaDataset } from "./postventaCache.js";
 
 const PERIODICIDAD_LABEL: Record<string, string> = {
@@ -22,19 +24,49 @@ function construirDescripcion(cliente: PostVentaCliente): string {
   return `Plan ${periodicidad}, renueva ${cuando}.`;
 }
 
-// Un cliente con renovacion en ventana de alerta (mismo criterio que la
-// alerta RENOVACION_PROXIMA y el filtro de Renovaciones — ver
-// renovacionEnAlerta en enrichCliente.ts) recibe una tarea de contacto
-// automatica, una sola vez por ciclo: mientras tenga una tarea RENOVACION
-// sin cerrar no se crea otra. Al marcarla COMPLETADA (contactado) o
-// CANCELADA, se habilita la siguiente en el proximo ciclo.
+// Un cliente ACTIVO (estado INICIAR COBRANZA) con renovacion en ventana de
+// alerta (mismo criterio que la alerta RENOVACION_PROXIMA y el filtro de
+// Renovaciones — ver renovacionEnAlerta en enrichCliente.ts) recibe una tarea
+// de contacto automatica, una sola vez por ciclo: mientras tenga una tarea
+// RENOVACION sin cerrar no se crea otra. Al marcarla COMPLETADA (contactado)
+// o CANCELADA, se habilita la siguiente en el proximo ciclo.
+//
+// MENSUAL queda fuera a proposito: su contacto de cada mes ya lo genera el
+// contacto programado (repartoMensualContacto.ts), y crear tambien una tarea
+// de renovacion lo contactaria dos veces por mes.
+//
+// El responsable sale del equipo marcado como "recibe reparto" (el menos
+// cargado ese dia, conservando a quien ya atendia al cliente). Si todavia no
+// hay nadie marcado, cae al ejecutivo de la orden, como antes.
 export async function sincronizarTareasRenovacion(): Promise<number> {
   const dataset = await getPostVentaDataset();
-  const candidatos = dataset.clientes.filter((c) => c.renovacionEnAlerta);
+  const candidatos = dataset.clientes.filter(
+    (c) =>
+      c.renovacionEnAlerta &&
+      c.planActual.periodicidad !== "MENSUAL" &&
+      esClienteActivoParaContacto(c.ordenVigente.nEstadoApiWorking)
+  );
   const conTareaAbierta = await tareasRepository.clientesConRenovacionAbierta(
     candidatos.map((c) => c.numeroDocumentoCliente)
   );
   const nuevos = candidatos.filter((c) => !conTareaAbierta.has(c.numeroDocumentoCliente));
+  if (nuevos.length === 0) return 0;
+
+  const receptores = await usuarioAutorizadoRepository.listReceptoresReparto();
+  const fechaDe = (c: PostVentaCliente) => (c.proximaRenovacion ? c.proximaRenovacion.slice(0, 10) : hoyLocalIso());
+  const [ultimo, carga] = await Promise.all([
+    tareasRepository.ultimoResponsablePorCliente(nuevos.map((c) => c.numeroDocumentoCliente)),
+    tareasRepository.cargaAbiertaDesde(hoyLocalIso()),
+  ]);
+  const responsables = asignarResponsablesPorFecha(
+    nuevos.map((c) => ({
+      clave: c.numeroDocumentoCliente,
+      fecha: fechaDe(c),
+      ultimoResponsable: ultimo.get(c.numeroDocumentoCliente),
+    })),
+    receptores,
+    carga
+  );
 
   for (const c of nuevos) {
     await tareasRepository.create({
@@ -46,7 +78,7 @@ export async function sincronizarTareasRenovacion(): Promise<number> {
       origenEntidadId: c.numeroDocumentoCliente,
       titulo: "Contactar por renovación próxima",
       descripcion: construirDescripcion(c),
-      responsable: c.ordenVigente.ejecutivo ?? "Sin asignar",
+      responsable: responsables.get(c.numeroDocumentoCliente) ?? c.ordenVigente.ejecutivo ?? "Sin asignar",
       prioridad: c.diasParaRenovacion !== null && c.diasParaRenovacion <= 3 ? "ALTA" : "MEDIA",
       fechaVencimiento: c.proximaRenovacion ? c.proximaRenovacion.slice(0, 10) : null,
       createdBy: "Sistema",

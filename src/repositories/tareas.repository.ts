@@ -199,6 +199,63 @@ export async function pendientesDeRedistribuir(periodo: string, hoyIso: string):
   return rows.map(toDomain);
 }
 
+// Tareas abiertas (PENDIENTE/EN_PROCESO) con fecha desde `desdeIso` en
+// adelante, agrupadas por dia y responsable, de CUALQUIER origen: es la carga
+// real que ya tiene cada persona y base para que el reparto nuevo no apile
+// sobre dias ya llenos. DATE_FORMAT evita el desfase de zona horaria al
+// convertir la columna DATE a Date de JS.
+export async function cargaAbiertaDesde(
+  desdeIso: string
+): Promise<{ fecha: string; responsable: string; total: number }[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT DATE_FORMAT(fecha_vencimiento, '%Y-%m-%d') AS fecha, responsable, COUNT(*) AS total
+     FROM postventa_tareas
+     WHERE estado IN ('PENDIENTE', 'EN_PROCESO')
+       AND fecha_vencimiento IS NOT NULL
+       AND fecha_vencimiento >= ?
+     GROUP BY fecha, responsable`,
+    [desdeIso]
+  );
+  return rows.map((r) => ({
+    fecha: r.fecha as string,
+    responsable: r.responsable as string,
+    total: Number(r.total),
+  }));
+}
+
+// Responsable de la tarea de reparto/renovacion mas reciente de cada cliente
+// — para que un cliente conserve a la misma persona de un mes a otro.
+export async function ultimoResponsablePorCliente(
+  numerosDocumentoCliente: string[]
+): Promise<Map<string, string>> {
+  if (numerosDocumentoCliente.length === 0) return new Map();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT t.numero_documento_cliente, t.responsable
+     FROM postventa_tareas t
+     JOIN (
+       SELECT numero_documento_cliente, MAX(id) AS id
+       FROM postventa_tareas
+       WHERE origen IN ('REPARTO_MENSUAL', 'RENOVACION')
+         AND numero_documento_cliente IN (?)
+       GROUP BY numero_documento_cliente
+     ) ultimo ON ultimo.id = t.id`,
+    [numerosDocumentoCliente]
+  );
+  return new Map(rows.map((r) => [r.numero_documento_cliente as string, r.responsable as string]));
+}
+
+// Tareas de REPARTO_MENSUAL del periodo que todavia no se tocaron
+// (PENDIENTE) — las unicas que una reconstruccion puede mover o cancelar.
+export async function repartoPendienteDelPeriodo(periodo: string): Promise<Tarea[]> {
+  const [rows] = await pool.query<TareaRow[]>(
+    `SELECT * FROM postventa_tareas
+     WHERE origen = 'REPARTO_MENSUAL' AND periodo_reparto = ? AND estado = 'PENDIENTE'
+     ORDER BY numero_documento_cliente ASC`,
+    [periodo]
+  );
+  return rows.map(toDomain);
+}
+
 export interface RepartoMensualNuevo {
   numeroDocumentoCliente: string;
   idOrdenServicio: number | null;
