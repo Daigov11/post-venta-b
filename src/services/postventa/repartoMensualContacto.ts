@@ -245,6 +245,7 @@ export interface TareaCarteraMensual {
     nombreCliente: string;
     sistemas: PostVentaCliente["sistemas"];
     periodicidad: PostVentaCliente["planActual"]["periodicidad"];
+    telefonoEfectivo: string | null;
   };
 }
 
@@ -319,6 +320,7 @@ export async function listCarteraMensual(alcance: AlcanceCartera): Promise<{
         nombreCliente: cliente.nombreCliente,
         sistemas: cliente.sistemas,
         periodicidad: cliente.planActual.periodicidad,
+        telefonoEfectivo: cliente.telefonoEfectivo,
       },
     });
 
