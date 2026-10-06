@@ -282,10 +282,15 @@ export async function listCarteraMensual(alcance: AlcanceCartera): Promise<{
   const hoy = hoyLocalIso();
   const periodo = periodoDe(hoy);
 
-  const [dataset, todas] = await Promise.all([
+  // Ademas del periodo en curso, las abiertas de meses anteriores que quedaron
+  // sin hacer: siguen siendo trabajo pendiente (se muestran como urgentes).
+  const [dataset, delPeriodo, atrasadasDeAntes] = await Promise.all([
     getPostVentaDataset(),
     tareasRepository.list({ origen: "REPARTO_MENSUAL", periodoReparto: periodo }),
+    tareasRepository.list({ origen: "REPARTO_MENSUAL", vencidas: true }),
   ]);
+  const idsDelPeriodo = new Set(delPeriodo.map((t) => t.id));
+  const todas = [...delPeriodo, ...atrasadasDeAntes.filter((t) => !idsDelPeriodo.has(t.id))];
   const miUsuario = alcance.usuario.toLowerCase();
   const tareas = (alcance.esAdmin && !alcance.soloMias
     ? todas
