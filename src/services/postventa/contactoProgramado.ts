@@ -83,39 +83,57 @@ export function diasHabilesEntre(desde: Iso, hasta: Iso): Iso[] {
 
 export type ContactoDelPeriodo =
   | { tipo: "LIBRE"; motivo: string }
-  | { tipo: "FECHA"; fecha: Iso; motivo: string }
+  // atrasado: la fecha del ciclo cayo en un mes anterior y aun no vence la
+  // renovacion; el llamador decide si ya se genero antes (ver
+  // sincronizarPeriodo) y, si no, se agenda desde hoy.
+  | { tipo: "FECHA"; fecha: Iso; motivo: string; atrasado?: boolean }
   | null;
+
+// Dias antes de la renovacion en que se contacta a un trimestral (confirmado
+// con negocio: "2 semanas antes de su renovacion").
+const DIAS_ANTES_TRIMESTRAL = 14;
 
 // Que contacto le toca a un cliente en un periodo (YYYY-MM), segun su
 // periodicidad. Devuelve null cuando no le toca ninguno ESTE mes.
 //
 //  - MENSUAL: uno por mes, en cualquier dia (solo se balancea la carga).
-//  - SEMESTRAL / ANUAL: cada 2 meses hacia atras desde la renovacion. El
-//    contacto de la propia renovacion NO se genera aca: ya lo cubre la tarea
-//    RENOVACION (renovacionContacto.ts), asi no se contacta dos veces.
-//  - TRIMESTRAL: 2 semanas antes de renovar = la ventana de alerta de
-//    renovacion (15 dias), tambien cubierta por la tarea RENOVACION.
+//  - TRIMESTRAL: 14 dias antes de renovar.
+//  - SEMESTRAL / ANUAL: cada 2 meses hacia atras desde la renovacion,
+//    incluida la fecha de la propia renovacion (el dia que les toca pagar).
 export function contactoDelPeriodo(
   periodicidad: string,
   proximaRenovacion: string | null,
-  periodo: string
+  periodo: string,
+  hoy: Iso
 ): ContactoDelPeriodo {
   if (periodicidad === "MENSUAL") {
     return { tipo: "LIBRE", motivo: "Seguimiento mensual" };
   }
-  const mesesCiclo = MESES_POR_PERIODICIDAD[periodicidad];
-  if (!mesesCiclo || !proximaRenovacion) return null;
-
+  if (!proximaRenovacion) return null;
   const renovacion = proximaRenovacion.slice(0, 10);
+
+  if (periodicidad === "TRIMESTRAL") {
+    const fecha = formatIso(new Date(parseIso(renovacion).getTime() - DIAS_ANTES_TRIMESTRAL * 86_400_000));
+    const motivo = `Contacto ${DIAS_ANTES_TRIMESTRAL} días antes de su renovación (${renovacion})`;
+    if (periodoDe(fecha) === periodo) return { tipo: "FECHA", fecha, motivo };
+    if (fecha < `${periodo}-01` && renovacion >= hoy) return { tipo: "FECHA", fecha, motivo, atrasado: true };
+    return null;
+  }
+
+  const mesesCiclo = MESES_POR_PERIODICIDAD[periodicidad];
+  if (!mesesCiclo) return null;
   const pasos = mesesCiclo / MESES_ENTRE_CONTACTOS;
-  for (let k = 1; k < pasos; k++) {
+  for (let k = 0; k < pasos; k++) {
     const meses = k * MESES_ENTRE_CONTACTOS;
     const fecha = sumarMeses(renovacion, -meses);
     if (periodoDe(fecha) === periodo) {
       return {
         tipo: "FECHA",
         fecha,
-        motivo: `Seguimiento cada 2 meses — faltan ${meses} meses para su renovación (${renovacion})`,
+        motivo:
+          k === 0
+            ? `Contacto por su renovación (${renovacion})`
+            : `Seguimiento cada 2 meses — faltan ${meses} meses para su renovación (${renovacion})`,
       };
     }
   }
@@ -235,43 +253,6 @@ export function planificarContactos(items: ItemParaPlanificar[], opciones: Opcio
   return resultado;
 }
 
-export interface ItemConFecha {
-  clave: string;
-  fecha: Iso;
-  ultimoResponsable?: string;
-}
-
-// Solo elige PERSONA para items cuya fecha ya esta fijada (ej. la tarea de
-// renovacion vence el dia del pago y no se puede mover): la menos cargada ese
-// dia, con el mismo criterio de continuidad que planificarContactos.
-export function asignarResponsablesPorFecha(
-  items: ItemConFecha[],
-  receptores: string[],
-  cargaBase: CargaExistente[]
-): Map<string, string> {
-  const resultado = new Map<string, string>();
-  if (receptores.length === 0) return resultado;
-  const receptoresSet = new Set(receptores);
-  const cargaPersonaDia = new Map<string, number>();
-  const cargaPersona = new Map<string, number>();
-  const clave = (fecha: Iso, persona: string) => `${fecha}|${persona}`;
-  const registrar = (fecha: Iso, persona: string, n: number) => {
-    cargaPersonaDia.set(clave(fecha, persona), (cargaPersonaDia.get(clave(fecha, persona)) ?? 0) + n);
-    cargaPersona.set(persona, (cargaPersona.get(persona) ?? 0) + n);
-  };
-  for (const c of cargaBase) if (receptoresSet.has(c.responsable)) registrar(c.fecha, c.responsable, c.total);
-
-  for (const item of [...items].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.clave.localeCompare(b.clave))) {
-    const cargaDe = (p: string) => cargaPersonaDia.get(clave(item.fecha, p)) ?? 0;
-    const minimo = Math.min(...receptores.map(cargaDe));
-    const elegido =
-      item.ultimoResponsable && receptoresSet.has(item.ultimoResponsable) && cargaDe(item.ultimoResponsable) === minimo
-        ? item.ultimoResponsable
-        : receptores
-            .filter((p) => cargaDe(p) === minimo)
-            .sort((a, b) => (cargaPersona.get(a) ?? 0) - (cargaPersona.get(b) ?? 0) || a.localeCompare(b))[0];
-    registrar(item.fecha, elegido, 1);
-    resultado.set(item.clave, elegido);
-  }
-  return resultado;
+export function periodoAnterior(periodo: string): string {
+  return periodoDe(sumarMeses(`${periodo}-01`, -1));
 }

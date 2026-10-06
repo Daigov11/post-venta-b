@@ -5,7 +5,6 @@ import {
   deleteTarea,
   getTarea,
   listCartera,
-  listRenovacion,
   listSeguimientos,
   listTareas,
   reconstruirCartera,
@@ -19,8 +18,7 @@ export const tareasRouter = Router();
 
 tareasRouter.get("/", requireAuth, asyncHandler(listTareas));
 tareasRouter.post("/", requireAuth, asyncHandler(createTarea));
-// Antes de "/:id" — si no, Express la matchea como :id="renovacion"/"reparto-mensual".
-tareasRouter.get("/renovacion", requireAuth, asyncHandler(listRenovacion));
+// Antes de "/:id" — si no, Express la matchea como :id="reparto-mensual".
 tareasRouter.get("/reparto-mensual", requireAuth, asyncHandler(listCartera));
 tareasRouter.post("/reparto-mensual/redistribuir", requireAuth, asyncHandler(redistribuirCartera));
 // Cambia fechas y responsables de muchas tareas a la vez: solo ADMIN.

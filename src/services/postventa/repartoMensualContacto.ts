@@ -8,6 +8,7 @@ import {
   esClienteActivoParaContacto,
   finDeMes,
   hoyLocalIso,
+  periodoAnterior,
   periodoDe,
   planificarContactos,
   type CargaExistente,
@@ -69,8 +70,17 @@ async function sincronizarPeriodo(opts: { reconstruir: boolean; usuario: string 
 
   const contactoPorCliente = new Map<string, NonNullable<ReturnType<typeof contactoDelPeriodo>>>();
   for (const [doc, c] of elegibles) {
-    const contacto = contactoDelPeriodo(c.planActual.periodicidad, c.proximaRenovacion, periodo);
+    const contacto = contactoDelPeriodo(c.planActual.periodicidad, c.proximaRenovacion, periodo, hoy);
     if (contacto) contactoPorCliente.set(doc, contacto);
+  }
+
+  // Un contacto "atrasado" (su fecha cayo el mes pasado) solo se agenda si el
+  // mes pasado no se alcanzo a generar; si no, el cliente se contactaria dos
+  // veces por la misma renovacion.
+  const atrasados = [...contactoPorCliente].filter(([, c]) => c.tipo === "FECHA" && c.atrasado).map(([doc]) => doc);
+  if (atrasados.length > 0) {
+    const yaGenerados = await tareasRepository.clientesConRepartoDelPeriodo(atrasados, periodoAnterior(periodo));
+    for (const doc of yaGenerados) contactoPorCliente.delete(doc);
   }
 
   const pendientes = opts.reconstruir ? await tareasRepository.repartoPendienteDelPeriodo(periodo) : [];

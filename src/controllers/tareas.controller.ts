@@ -3,18 +3,12 @@ import * as eventoOperativoRepository from "../repositories/eventoOperativo.repo
 import * as seguimientosRepository from "../repositories/seguimientos.repository.js";
 import * as tareasRepository from "../repositories/tareas.repository.js";
 import { getEstadoIncidencias } from "../services/postventa/postventaCache.js";
-import { listTareasRenovacion } from "../services/postventa/renovacionContacto.js";
 import {
   listCarteraMensual,
   reconstruirRepartoDelPeriodo,
   redistribuirPendientesDelPeriodo,
 } from "../services/postventa/repartoMensualContacto.js";
 import type { EstadoTarea, OrigenTarea, PrioridadTarea, Tarea, TipoTarea } from "../types/postventa.js";
-
-export async function listRenovacion(_req: Request, res: Response) {
-  const data = await listTareasRenovacion();
-  res.status(200).json({ data, total: data.length });
-}
 
 // ?alcance=mias limita a las tareas del propio usuario. Un no-admin siempre
 // ve solo las suyas, aunque pida otra cosa: el filtro real vive aca, no en
