@@ -3,8 +3,8 @@
 -- Configuracion. Aplica a cualquier rol: un ADMIN con recibe_reparto = 1
 -- tambien recibe tareas (y ademas puede ver las de todos).
 --
--- Backfill: las tres personas que hoy se reparten el trabajo (migracion
--- 0046) quedan activadas, para que el comportamiento actual no cambie.
+-- Backfill: quienes se reparten el trabajo (Cristian y AISBELPV; Zurirodriguez
+-- queda fuera, confirmado con negocio) quedan activados.
 --
 -- ROLLBACK MANUAL (no hay mecanismo de "down" en este proyecto):
 --   ALTER TABLE postventa_usuarios_autorizados DROP COLUMN recibe_reparto;
@@ -14,4 +14,4 @@ ALTER TABLE postventa_usuarios_autorizados
 
 UPDATE postventa_usuarios_autorizados
   SET recibe_reparto = 1
-  WHERE usuario_externo IN ('Cristian', 'Zurirodriguez', 'AISBELPV');
+  WHERE usuario_externo IN ('Cristian', 'AISBELPV');
